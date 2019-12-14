@@ -205,6 +205,9 @@ class Model(torch.nn.Module):
 
 
 class StructMutation():
+    '''
+    can mutate: learning rate, add vertex, 
+    '''
     def mutate(self, dna):
         # Try the candidates in random order until one has the right connectivity.
         for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
@@ -212,6 +215,9 @@ class StructMutation():
             if (self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)):
                 return mutated_dna
         # raise exceptions.MutationException()  # Try another mutation.
+        self.mutate_learningRate(dna)
+        self.mutate_vertex(dna)
+
 
     def _vertex_pair_candidates(self, dna):
         """Yields connectable vertex pairs."""
@@ -272,6 +278,7 @@ class StructMutation():
         after_vertex_id = random.sample(_find_allowed_vertices())
         vertex_size = random.randint(dna.output_size,
                                      dna.vertices[after_vertex_id - 1].outputs_mutable)
+        # TODO: how it supposed to mutate
         vertex_type = 'linear'
         if random.random > 0.4:
             vertex_type = 'bn_relu'
