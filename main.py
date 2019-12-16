@@ -127,8 +127,9 @@ class DNA(object):
         self.edges.append(Edge(from_vertex=after_vertex_id - 1, to_vertex=after_vertex_id))
         self.edges.append(Edge(from_vertex=after_vertex_id, to_vertex=after_vertex_id + 1))
         self.vertices.insert(
+            after_vertex_id,
             Vertex(edges_in=[len(self.edges) - 2],
-                   edges_out=[len(self.edges - 1)],
+                   edges_out=[len(self.edges) - 1],
                    inputs_mutable=self.vertices[after_vertex_id - 1].outputs_mutable,
                    outputs_mutable=vertex_size,
                    type=vertex_type))
@@ -246,7 +247,8 @@ class StructMutation():
                 yield from_vertex_id, to_vertex_id
 
     def _find_allowed_vertices(self, dna):
-        return list(range(0, len(dna.vertices)))
+        ''' TODO: 除第一层(假节点)外的所有vertex_id '''
+        return list(range(1, len(dna.vertices)))
 
     def _find_disallowed_from_vertices(self, dna, to_vertex_id):
         ''' 寻找不可作为起始层索引的：反向链接的，重复连接的Edge '''
@@ -282,13 +284,14 @@ class StructMutation():
         mutated_dna = copy.deepcopy(dna)
         # 随机选择一个 vertex_id 插入 vertex, TODO: size 默认在前后两层之间??
         after_vertex_id = random.sample(self._find_allowed_vertices(dna), 1)
-        vertex_size = random.randint(dna.vertices[after_vertex_id + 1].outputs_mutable,
-                                     dna.vertices[after_vertex_id].outputs_mutable)
+        vertex_size = random.randint(dna.vertices[after_vertex_id[0]].outputs_mutable,
+                                     dna.vertices[after_vertex_id[0] - 1].outputs_mutable)
         # TODO: how it supposed to mutate
         vertex_type = 'linear'
-        if random.random > 0.4:
+
+        if random.random() > 0.4:
             vertex_type = 'bn_relu'
-        mutated_dna.add_vertex(after_vertex_id, vertex_size, vertex_type)
+        mutated_dna.add_vertex(after_vertex_id[0], vertex_size, vertex_type)
         return mutated_dna
 
 
@@ -370,9 +373,12 @@ class Evolution_pop:
             # pred_y = torch.max(test_output, 1)[1].data.numpy().squeeze()
             # print(pred_y, 'prediction number')
             # print(test_y[:10].numpy(), 'real number', '\n')
-            print('\n')
+            print('')
 
     def choose_varition_dna(self):
+        '''
+        每次挑选两个体,取fitness,判断要kill还是reproduce
+        '''
         while self._evolve_time > 0:
             self._evolve_time -= 1
             self.decode()
