@@ -44,9 +44,10 @@ import numpy as np
 
 DNA_cnt = 0
 
+
 class DNA(object):
     '''
-    learning_rate, vertices[vertex_id], edges[edge_id]
+    learning_rate, vertices[vertex_id]+type, edges[edge_id]
     '''
     # __dna_cnt = 0
     input_size = 28 * 28
@@ -69,7 +70,7 @@ class DNA(object):
         self.vertices.append(
             Vertex(edges_in=[0],
                    edges_out=[1],
-                   inputs_mutable=self.hidden_size,
+                   inputs_mutable=self.input_size,
                    outputs_mutable=self.hidden_size))
         self.vertices.append(
             Vertex(edges_in=[1],
@@ -84,7 +85,7 @@ class DNA(object):
 
     def __del__(self):
         class_name = self.__class__.__name__
-        print(class_name, "[", self.dna_cnt, "]销毁->fitness", self.fitness,end='\n\n')
+        print(class_name, "[", self.dna_cnt, "]销毁->fitness", self.fitness, end='\n\n')
 
     def add_edge(self, from_vertex_id, to_vertex_id, edge_type, edge_id):
         """
@@ -182,22 +183,28 @@ class Model(torch.nn.Module):
         for vertex in DNA.vertices[1:]:
             # 默认第一层和最后一层非hidden层
             self.layer.append(torch.nn.Linear(vertex.inputs_mutable, vertex.outputs_mutable))
+        self.batch_size = Evolution_pop.BATCH_SIZE
 
     def forward(self, input):
+        '''
+        配置每层的 输入、输出、激活函数
+        '''
         # self.x = [ input, ]
         # x = np.array()
         # x = torch.stack(input, )
+        block_h = input.shape[0]
         x = {
             0: input,
         }
         for index, layer in enumerate(self.layer, start=1):
             length = len(x)
-            a = x[length - 1]
+            # a = x[length - 1]
+            a = torch.empty(block_h, 0)
             for i in self.dna.vertices[index].edges_in:
-                a += x[self.dna.edges[i].from_vertex]
-            a -= x[length - 1]
+                # a += x[self.dna.edges[i].from_vertex]
+                a = torch.cat((a, x[self.dna.edges[i].from_vertex]), dim=1)
+            # a -= x[length - 1]
             if self.dna.vertices[index].type == 'bn_relu':
-                # x.append(F.relu(layer(a)))
                 x[index] = F.relu(layer(a))
             elif self.dna.vertices[index].type == 'linear':
                 x[index] = layer(a)
@@ -217,7 +224,6 @@ class StructMutation():
         # raise exceptions.MutationException()  # Try another mutation.
         self.mutate_learningRate(dna)
         self.mutate_vertex(dna)
-
 
     def _vertex_pair_candidates(self, dna):
         """Yields connectable vertex pairs."""
@@ -274,10 +280,10 @@ class StructMutation():
 
     def mutate_vertex(self, dna):
         mutated_dna = copy.deepcopy(dna)
-        # add_vertex(self, after_vertex_id, vertex_size, vertex_type):
-        after_vertex_id = random.sample(_find_allowed_vertices())
-        vertex_size = random.randint(dna.output_size,
-                                     dna.vertices[after_vertex_id - 1].outputs_mutable)
+        # 随机选择一个 vertex_id 插入 vertex, TODO: size 默认在前后两层之间??
+        after_vertex_id = random.sample(self._find_allowed_vertices(dna), 1)
+        vertex_size = random.randint(dna.vertices[after_vertex_id + 1].outputs_mutable,
+                                     dna.vertices[after_vertex_id].outputs_mutable)
         # TODO: how it supposed to mutate
         vertex_type = 'linear'
         if random.random > 0.4:
@@ -287,8 +293,8 @@ class StructMutation():
 
 
 class Evolution_pop:
-    _population_size_setpoint = 4
-    _max_layer_size = 4
+    _population_size_setpoint = 3
+    _max_layer_size = 3
     _evolve_time = 100
     fitness_pool = []
 
@@ -298,21 +304,18 @@ class Evolution_pop:
     # LR = 0.001          # 学习率
 
     def __init__(self, data):
-        # 初始化DNA，一层hidden（节点数不同）（如何记录，表示DNA）
+        '''
+        初始化DNA: 一层hidden(节点数不同); 都为linear
+        接收传入的训练数据 data
+        初始化 Mutation 类
+        '''
         self.population = []
         for i in range(self._population_size_setpoint):
-            temp = DNA()
-            temp.mutate_layer_size(v_list=[1], s_list=[random.randint(1, self._max_layer_size)])
-            self.population.append(temp)
-        # self.data_in = data_in
-        # self.data_label = data_label
-
-        # self.train_loader = train_loader
-        # self.test_x = test_x
-        # self.test_y = test_y
-
+            dna_iter = DNA()
+            dna_iter.mutate_layer_size(
+                v_list=[1], s_list=[random.randint(dna_iter.output_size, dna_iter.input_size)])
+            self.population.append(dna_iter)
         self.data = data
-
         self.struct_mutation = StructMutation()
 
     def decode(self):
@@ -330,14 +333,13 @@ class Evolution_pop:
 
             train_loader, test_x, test_y = self.data.getData()
             test_x = test_x.view(-1, 784)
-            print("[Evolution_pop].[decode]->test_x: ", test_x.shape)
+            # print("[Evolution_pop].[decode]->test_x: ", test_x.shape)
             accuracy = 0
             # training and testing
             for epoch in range(self.EPOCH):
                 step = 0
                 # TODO: 用movan的enumerate会报错，why?
-                # print('Epoch: ',epoch,end='')
-                max_tep = 60000 / train_loader.batch_size
+                max_tep = int(60000 / train_loader.batch_size)
                 for step, (b_x, b_y) in enumerate(train_loader):
                     b_x = b_x.view(-1, 784)
                     # print("[b_x, b_y].shape: ", b_x.shape, b_y.shape)
@@ -354,17 +356,25 @@ class Evolution_pop:
                         accuracy = float(
                             (pred_y == test_y.data.numpy()).astype(int).sum()) / float(
                                 test_y.size(0))
-                        print('Epoch: ', epoch, 'step: ', step,
-                              '| train loss: %.4f' % loss.data.numpy(),
-                              '| test accuracy: %.2f' % accuracy)
-                        # print('[' + '>' * step + ' ' * (max_tep - step) + ']' +str(int(accuracy)) + '\r',end='')
-            test_output = net(test_x[:10])
-            pred_y = torch.max(test_output, 1)[1].data.numpy().squeeze()
-            print(pred_y, 'prediction number')
-            print(test_y[:10].numpy(), 'real number', '\n')
+                        # print('Epoch: ', epoch, 'step: ', step,'| train loss: %.4f' % loss.data.numpy(),'| test accuracy: %.2f' % accuracy)
+                        print("\r" + 'Epoch: ' + str(epoch) + ' step: ' + str(step) + '[' +
+                              ">>" * int(step / 50) + ']',
+                              end=' ')
+                        print('loss: %.4f' % loss.data.numpy(),
+                              '| accuracy: %.4f' % accuracy,
+                              end=' ')
+                print('')
+            dna.fitness = accuracy
+            # 取十种图片测试
+            # test_output = net(test_x[:10])
+            # pred_y = torch.max(test_output, 1)[1].data.numpy().squeeze()
+            # print(pred_y, 'prediction number')
+            # print(test_y[:10].numpy(), 'real number', '\n')
+            print('\n')
 
     def choose_varition_dna(self):
-        while True:
+        while self._evolve_time > 0:
+            self._evolve_time -= 1
             self.decode()
             # 每次挑两个个体并提取出训练成绩fitness
             individual_pair = random.sample(list(enumerate(self.population)), 2)
@@ -375,7 +385,7 @@ class Evolution_pop:
             # (population过大->kill不好的)，反之(population过小->reproduce好的)
             if len(self.population) >= self._population_size_setpoint:
                 self._kill_individual(worse_individual[0])
-            if len(self.population) < self._population_size_setpoint:
+            elif len(self.population) < self._population_size_setpoint:
                 self._reproduce_and_train_individual(better_individual[0])
 
     def _kill_individual(self, index):

@@ -3,7 +3,7 @@
 #   show the random scatter --plt
 #
 ####################################################################################
-
+'''
 import torch
 import matplotlib.pyplot as plt
 
@@ -30,7 +30,7 @@ plt.scatter(x.data.numpy()[:, 0],
             lw=0,
             cmap='RdYlGn')
 plt.show()
-
+'''
 ####################################################################################
 #
 #   test pytorch from movan
@@ -115,3 +115,75 @@ a = list(enumerate(A))
 c = random.sample(a, 2)
 print(c)
 '''
+
+####################################################################################
+#
+#   try 打印进度条
+#
+####################################################################################
+'''
+import time
+
+
+def Cus_precess(max_tep):
+    for i in range(1, max_tep):
+        print('[' + '>' * i + ' ' * (max_tep - i) + ']' + str(int(100 / (max_tep - 1) * i)) + '%' +
+              '\r',
+              end='')
+        time.sleep(0.2)
+    print('\n')
+
+
+def main():
+    # max = int(input('最大步数：'))
+    max = 100
+    Cus_precess(max)
+
+
+if __name__ == '__main__':
+    main()
+
+'''
+
+####################################################################################
+#
+#   float 转换为string并插入‘.’
+#
+####################################################################################
+'''
+temp_str = str(int(accuracy * 1e5))
+temp_l = list(str(int(accuracy * 1e5)))
+temp_l.insert(-3, '.')
+show_acc = "".join(temp_l)
+'''
+
+####################################################################################
+#
+#   torch tensor + - contact
+#
+####################################################################################
+
+import torch
+
+a = torch.ones(3, 4) * 3
+print(a)
+b = torch.ones(3, 4) * 2
+c = a + b
+print(c)
+
+# stack 是建立一个新的维度
+d = torch.stack((a, b), dim=1)
+print(d, d.shape)
+e = torch.stack((a, b), dim=0)
+print(e, e.shape)
+
+# cat
+f = torch.cat((a, b), dim=0)
+print(f, f.shape)
+g = torch.cat((a, b), dim=1)
+print(g, g.shape)
+
+h = torch.empty(3,0)
+print(h)
+h = torch.cat((h, a), dim=1)
+print(h)
