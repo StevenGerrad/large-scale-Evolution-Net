@@ -162,7 +162,7 @@ show_acc = "".join(temp_l)
 #   torch tensor + - contact
 #
 ####################################################################################
-
+'''
 import torch
 
 a = torch.ones(3, 4) * 3
@@ -187,3 +187,28 @@ h = torch.empty(3,0)
 print(h)
 h = torch.cat((h, a), dim=1)
 print(h)
+
+'''
+
+####################################################################################
+#
+#   torch tensor + - contact
+#
+####################################################################################
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# size = 10000
+# a = np.random.normal(loc=3, scale=1, size=size)
+# # plt.bar(list(range(0, size)), a)
+# plt.hist(a)
+# plt.show()
+# print(a)
+
+# m1=100
+# sigma=20
+# x = m1 + sigma * np.random.randn(2000)
+x = np.random.randn(1)
+plt.hist(x, bins=50, color="green", normed=True)
+plt.show()

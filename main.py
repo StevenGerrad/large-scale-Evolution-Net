@@ -55,10 +55,12 @@ class DNA(object):
     output_size = 10
 
     def __init__(self, learning_rate=0.05):
-        # self.__dna_cnt += 1
         global DNA_cnt
-        DNA_cnt += 1
         self.dna_cnt = DNA_cnt
+        DNA_cnt += 1
+
+        self.fitness = -1.0
+
         self.learning_rate = learning_rate
         # layer
         self.vertices = []
@@ -81,11 +83,11 @@ class DNA(object):
         self.edges = []
         self.edges.append(Edge(from_vertex=0, to_vertex=1))
         self.edges.append(Edge(from_vertex=1, to_vertex=2))
-        self.fitness = -1.0
 
     def __del__(self):
+
         class_name = self.__class__.__name__
-        print(class_name, "[", self.dna_cnt, "]销毁->fitness", self.fitness, end='\n\n')
+        print(class_name, "[", self.dna_cnt, "]销毁->fitness", self.fitness, end='\n')
 
     def add_edge(self, from_vertex_id, to_vertex_id, edge_type, edge_id):
         """
@@ -214,16 +216,22 @@ class Model(torch.nn.Module):
 
 class StructMutation():
     '''
-    can mutate: learning rate, add vertex, 
+    can mutate: hidden size, add edge, learning rate, add vertex, 
     '''
     def mutate(self, dna):
-        # Try the candidates in random order until one has the right connectivity.
+        # 1. Try the candidates in random order until one has the right connectivity.(Add)
         for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
             mutated_dna = copy.deepcopy(dna)
             if (self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)):
                 return mutated_dna
-        # raise exceptions.MutationException()  # Try another mutation.
+
+        # 2. Try to mutate learning Rate
         self.mutate_learningRate(dna)
+
+        # 3. mutate the hidden layer's size
+        self.mutate_hidden_size(dna)
+
+        # 4. Mutate the vertex (Add)
         self.mutate_vertex(dna)
 
     def _vertex_pair_candidates(self, dna):
@@ -272,6 +280,16 @@ class StructMutation():
             # TODO: ...
             return True
 
+    def mutate_hidden_size(self, dna):
+        ''' TODO: mutate the hidden layer's size '''
+        for i in list(range(1, len(dna.vertices) - 1)):
+            if random.random() > 0.6:
+                last = dna.vertices[i].outputs_mutable
+                alpha = min(dna.vertices[i - 1].outputs_mutable - last,
+                            last - dna.vertices[i + 1].outputs_mutable) / 3
+                next = last + alpha * np.random.randn(1)
+                dna.vertices[i].outputs_mutable = next[0]
+
     def mutate_learningRate(self, dna):
         mutated_dna = copy.deepcopy(dna)
         # Mutate the learning rate by a random factor between 0.5 and 2.0,
@@ -283,20 +301,19 @@ class StructMutation():
     def mutate_vertex(self, dna):
         mutated_dna = copy.deepcopy(dna)
         # 随机选择一个 vertex_id 插入 vertex, TODO: size 默认在前后两层之间??
-        after_vertex_id = random.sample(self._find_allowed_vertices(dna), 1)
-        vertex_size = random.randint(dna.vertices[after_vertex_id[0]].outputs_mutable,
-                                     dna.vertices[after_vertex_id[0] - 1].outputs_mutable)
+        after_vertex_id = random.choice(self._find_allowed_vertices(dna))
+        vertex_size = random.randint(dna.vertices[after_vertex_id].outputs_mutable,
+                                     dna.vertices[after_vertex_id - 1].outputs_mutable)
         # TODO: how it supposed to mutate
         vertex_type = 'linear'
-
-        if random.random() > 0.4:
+        if random.random() > 0.5:
             vertex_type = 'bn_relu'
-        mutated_dna.add_vertex(after_vertex_id[0], vertex_size, vertex_type)
+        mutated_dna.add_vertex(after_vertex_id, vertex_size, vertex_type)
         return mutated_dna
 
 
 class Evolution_pop:
-    _population_size_setpoint = 3
+    _population_size_setpoint = 4
     _max_layer_size = 3
     _evolve_time = 100
     fitness_pool = []
@@ -386,20 +403,58 @@ class Evolution_pop:
             individual_pair = random.sample(list(enumerate(self.population)), 2)
             # TODO: 话说他这样取出来如果删掉的话真的能保证吗
             individual_pair.sort(key=lambda i: i[1].fitness, reverse=True)
-            better_individual = individual_pair[0]
-            worse_individual = individual_pair[1]
+            # better_individual = individual_pair[0]
+            # worse_individual = individual_pair[1]
+            # print("Choice: ",self._evolve_time,end=' ')
+            # print("better: ",better_individual[0],'->',better_individual[1].fitness, end=' ')
+            # print("worse: ", worse_individual[0],'->', worse_individual[1].fitness, end=' ')
+            better_individual = individual_pair[0][0]
+            worse_individual = individual_pair[1][0]
+            individual_pair = []
             # (population过大->kill不好的)，反之(population过小->reproduce好的)
             if len(self.population) >= self._population_size_setpoint:
-                self._kill_individual(worse_individual[0])
+                print("--kill worse", worse_individual)
+                self._kill_individual(worse_individual)
             elif len(self.population) < self._population_size_setpoint:
-                self._reproduce_and_train_individual(better_individual[0])
+                print("--reproduce better", better_individual)
+                self._reproduce_and_train_individual(better_individual)
 
     def _kill_individual(self, index):
+        ''' kill by the index of population '''
+        self._print_population()
+
         del self.population[index]
+        # debug
+        self._print_population()
 
     def _reproduce_and_train_individual(self, index):
-        son = copy.deepcopy(self.population[index])
+        ''' inherit the parent, mutate, join the population '''
+        self._print_population()
+
+        # inherit the parent (attention the dna_cnt)
+        son = self.inherit_DNA(self.population[index])
+
         self.struct_mutation.mutate(son)
+        self.population.append(son)
+        # debug
+        self._print_population()
+
+    def inherit_DNA(self, dna):
+        ''' inderit from parent: reset dna_cnt, fitness '''
+        son = copy.deepcopy(dna)
+        global DNA_cnt
+        son.dna_cnt = DNA_cnt
+        DNA_cnt += 1
+        son.fitness = -1
+        return son
+
+    def _print_population(self):
+        print("pop sum: ", len(self.population), '|', end=' ')
+        index = 0
+        for i in self.population:
+            print('(', index, '->', i.dna_cnt, ')', end=' ')
+            index += 1
+        print('')
 
 
 class MadeDate:
