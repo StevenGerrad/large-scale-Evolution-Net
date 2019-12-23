@@ -1,7 +1,5 @@
 
 # The DNA holds Vertex and Edge instances. The Vertex class looks like this:
-
-
 class Vertex(object):
     def __init__(self, vertex_proto):
         # Relationship to the rest of the graph.

@@ -195,7 +195,7 @@ print(h)
 #   torch tensor + - contact
 #
 ####################################################################################
-
+'''
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -212,3 +212,186 @@ import matplotlib.pyplot as plt
 x = np.random.randn(1)
 plt.hist(x, bins=50, color="green", normed=True)
 plt.show()
+'''
+
+####################################################################################
+#
+#   class DNA --rubish 2019.12.17
+#
+####################################################################################
+'''
+
+class DNA(object):
+    # __dna_cnt = 0
+    input_size = 28 * 28
+    hidden_size = 128
+    output_size = 10
+
+    def __init__(self, learning_rate=0.05):
+        global DNA_cnt
+        self.dna_cnt = DNA_cnt
+        DNA_cnt += 1
+
+        self.fitness = -1.0
+
+        self.learning_rate = learning_rate
+        # layer
+        self.vertices = []
+        self.vertices.append(
+            Vertex(edges_in=[],
+                   edges_out=[0],
+                   inputs_mutable=self.input_size,
+                   outputs_mutable=self.input_size))
+        self.vertices.append(
+            Vertex(edges_in=[0],
+                   edges_out=[1],
+                   inputs_mutable=self.input_size,
+                   outputs_mutable=self.hidden_size))
+        self.vertices.append(
+            Vertex(edges_in=[1],
+                   edges_out=[],
+                   inputs_mutable=self.hidden_size,
+                   outputs_mutable=self.output_size))
+        # edge
+        self.edges = []
+        self.edges.append(Edge(from_vertex=0, to_vertex=1))
+        self.edges.append(Edge(from_vertex=1, to_vertex=2))
+
+    def __del__(self):
+
+        class_name = self.__class__.__name__
+        print(class_name, "[", self.dna_cnt, "]销毁->fitness", self.fitness, end='\n')
+
+    def add_edge(self, from_vertex_id, to_vertex_id, edge_type, edge_id):
+        edge = Edge(from_vertex=from_vertex_id, to_vertex=to_vertex_id, type=edge_type)
+        self.edges[edge_id] = edge
+        self.vertices[from_vertex_id].edges_out.append(edge_id)
+        self.vertices[to_vertex_id].edges_in.append(edge_id)
+        return edge
+
+    def calculate_flow(self):
+        
+        for vertex in self.vertices:
+            # 先默认将input_mutable 置为0，然后处理inputs_mutable
+            vertex.layer_size2zero()
+            if len(vertex.edges_in) == 0:
+                vertex.inputs_mutable = self.input_size
+                # print("[calculate_flow]->start:")
+            else:
+                for i in vertex.edges_in:
+                    vertex.inputs_mutable += self.vertices[
+                        self.edges[i].from_vertex].outputs_mutable
+                    # print("edge->",i,"from",self.edges[i].from_vertex,"to",self.edges[i].to_vertex,end=' ')
+                    # print("vertex input: ", vertex.inputs_mutable)
+        # outputs_mutable 默认不需要处理，即size
+        
+
+    def mutate_layer_size(self, v_list=[], s_list=[]):
+        for i in range(len(v_list)):
+            self.vertices[v_list[i]].outputs_mutable = s_list[i]
+
+    def add_vertex(self, after_vertex_id, vertex_size, vertex_type):
+        
+        print(self.dna_cnt, "add_vertex", after_vertex_id)
+        # 寻找上原 vertex 的前链接 edge
+        last_edge_id = -1
+        for edge_id in self.vertices[after_vertex_id].edges_in:
+            if edge_id in self.vertices[after_vertex_id - 1].edges_out:
+                last_edge_id = edge_id
+                break
+        # 修改原本位置的 edge, 并增加新的 edge (将所有新加入层后的 vertex_id++)
+        for id, edge in enumerate(self.edges):
+            if id == last_edge_id:
+                continue
+            if edge.from_vertex >= after_vertex_id:
+                edge.from_vertex += 1
+            if edge.to_vertex >= after_vertex_id:
+                edge.to_vertex += 1
+        self.edges.append(Edge(from_vertex=after_vertex_id, to_vertex=after_vertex_id + 1))
+        # 将新加入的 vertex 插入(其实没有必要计算inputs_mutable)
+        self.vertices.insert(
+            after_vertex_id,
+            Vertex(edges_in=[last_edge_id],
+                   edges_out=[len(self.edges) - 1],
+                   inputs_mutable=self.vertices[after_vertex_id - 1].outputs_mutable,
+                   outputs_mutable=vertex_size,
+                   type=vertex_type))
+        for j, edge_id in enumerate(self.vertices[after_vertex_id + 1].edges_in):
+            if self.edges[edge_id].from_vertex == after_vertex_id - 1 and self.edges[
+                    edge_id].to_vertex == after_vertex_id + 1:
+                self.vertices[after_vertex_id + 1].edges_in[j] = len(self.edges) - 1
+                break
+        print('')
+
+    def has_edge(self, from_vertex_id, to_vertex_id):
+        for edge_id in self.vertices[from_vertex_id].edges_out:
+            if self.edges[edge_id].to_vertex == to_vertex_id:
+                return True
+        return False
+'''
+
+####################################################################################
+#
+#   class DNA 尝试的bfs便利检查整个网络
+#
+####################################################################################
+
+
+    def calculate_flow(self):
+        '''
+        按顺序计算神经网络每层的输入输出size, outputs_mutable 默认不需要处理，即size
+        '''
+        # 先将所有 vertex 的 inputs_mutable 置 0
+        for vertex in self.vertices:
+            vertex.inputs_mutable = 0
+        # 初始化记录edges节点状态的 done
+        vis = [0] * len(self.edges)
+        # 将vertices[0]的全部 edges_out 初始化
+        stack = copy.deepcopy(self.vertices[0].edges_out)
+        # 采用bfs搜索
+        while len(stack) != 0:
+            f = stack[0]
+            if self.edges[f].state == 0:
+                vis[f] = 1
+                continue
+            s = self.edges[f].from_vertex
+            u = self.edges[f].to_vertex
+            # 更新节点u的inputs_mutable TODO: 可以用list记录改vertex的所有edges_in是否都被处理过
+            self.vertices[u].inputs_mutable += self.vertices[s].outputs_mutable
+            vis[f] = 1
+            del stack[0]
+            for i in self.vertices[u].edges_out:
+                if vis[i] == 0:
+                    stack.append(i)
+        # for vertex in self.vertices:
+            # print("[calculate_flow].vertex: ", vertex.edges_in, vertex.inputs_mutable, vertex.edges_out,vertex.outputs_mutable)
+    
+    def add_vertex(self, before_vertex_id, after_vertex_id, vertex_size, vertex_type):
+        '''
+        简单版：所有 vertex 可排成一列 (但序号不一定按顺序)
+        相当于隐藏了一个边,添加了一个节点两个边,并改变原边所对应的前后vertex的相关配置
+        '''
+        print(self.dna_cnt, "add_vertex", before_vertex_id)
+        # 隐藏一个边
+        for edge in self.edges:
+            if edge.from_vertex == before_vertex_id and edge.to_vertex == after_vertex_id:
+                edge.state = 0
+        # 添加两个边
+        new_vertex_id = len(self.vertices)
+        self.edges.append(Edge(before_vertex_id, new_vertex_id))
+        self.edges.append(Edge(new_vertex_id, after_vertex_id))
+        # 添加了一个节点
+        self.vertices.append(
+            Vertex(edges_in=[len(self.edges) - 2],
+                   edges_out=[len(self.edges) - 1],
+                   inputs_mutable=self.vertices[before_vertex_id - 1].outputs_mutable,
+                   outputs_mutable=vertex_size,
+                   type=vertex_type))
+        # 改变原边所对应的前后vertex的相关配置
+        for i,edge_id in enumerate(self.vertices[before_vertex_id].edges_out):
+            if self.edges[edge_id].from_vertex == before_vertex_id and self.edges[edge_id].to_vertex == after_vertex_id:
+                self.vertices[before_vertex_id - 1].edges_out[i] = len(self.edges) - 2
+        for i,edge_id in enumerate(self.vertices[after_vertex_id].edges_out):
+            if self.edges[edge_id].from_vertex == before_vertex_id and self.edges[edge_id].to_vertex == after_vertex_id:
+                self.vertices[before_vertex_id - 1].edges_out[i] = len(self.edges) - 1
+        # print('')
