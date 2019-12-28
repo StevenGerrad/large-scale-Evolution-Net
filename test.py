@@ -335,12 +335,10 @@ class DNA(object):
 #   class DNA 尝试的bfs便利检查整个网络
 #
 ####################################################################################
-
-
-    def calculate_flow(self):
-        '''
-        按顺序计算神经网络每层的输入输出size, outputs_mutable 默认不需要处理，即size
-        '''
+'''
+    def calculate_flow(self):     
+        # 按顺序计算神经网络每层的输入输出size, outputs_mutable 默认不需要处理，即size
+        
         # 先将所有 vertex 的 inputs_mutable 置 0
         for vertex in self.vertices:
             vertex.inputs_mutable = 0
@@ -367,10 +365,8 @@ class DNA(object):
             # print("[calculate_flow].vertex: ", vertex.edges_in, vertex.inputs_mutable, vertex.edges_out,vertex.outputs_mutable)
     
     def add_vertex(self, before_vertex_id, after_vertex_id, vertex_size, vertex_type):
-        '''
-        简单版：所有 vertex 可排成一列 (但序号不一定按顺序)
-        相当于隐藏了一个边,添加了一个节点两个边,并改变原边所对应的前后vertex的相关配置
-        '''
+        # 简单版：所有 vertex 可排成一列 (但序号不一定按顺序)
+        # 相当于隐藏了一个边,添加了一个节点两个边,并改变原边所对应的前后vertex的相关配置
         print(self.dna_cnt, "add_vertex", before_vertex_id)
         # 隐藏一个边
         for edge in self.edges:
@@ -395,3 +391,11 @@ class DNA(object):
             if self.edges[edge_id].from_vertex == before_vertex_id and self.edges[edge_id].to_vertex == after_vertex_id:
                 self.vertices[before_vertex_id - 1].edges_out[i] = len(self.edges) - 1
         # print('')
+
+'''
+
+####################################################################################
+#
+#   test torch 模型的存储与读取
+#
+####################################################################################
