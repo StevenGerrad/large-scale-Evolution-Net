@@ -112,17 +112,23 @@ class DNA(object):
         '''
         按顺序计算神经网络每层的输入输出size, outputs_mutable 默认不需要处理，即size
         '''
-        for vertex in self.vertices:
+        for vertex_id, vertex in enumerate(self.vertices):
             # 先默认将input_mutable 置为0，然后处理inputs_mutable
             vertex.layer_size2zero()
             if len(vertex.edges_in) == 0:
                 vertex.inputs_mutable = self.input_size
-                # print("[calculate_flow]->start:")
+                print("[calculate_flow]->start Node 0:", vertex.inputs_mutable)
             else:
+                print("Node", vertex_id, 'size:', vertex.outputs_mutable, end=': ')
                 for edg in vertex.edges_in:
                     vertex.inputs_mutable += edg.from_vertex.outputs_mutable
-                    # print("edge->",i,"from",self.edges[i].from_vertex,"to",self.edges[i].to_vertex,end=' ')
-                    # print("vertex input: ", vertex.inputs_mutable)
+                    print("[",
+                          self.vertices.index(edg.from_vertex),
+                          ',',
+                          self.vertices.index(edg.to_vertex),
+                          "]",
+                          end=' ')
+                print()
         # outputs_mutable 默认不需要处理，即size
 
     def mutate_layer_size(self, v_list=[], s_list=[]):
@@ -259,21 +265,28 @@ class StructMutation():
         '''
         # mutated_dna = copy.deepcopy(dna)
         mutated_dna = dna
-        # 1. Try the candidates in random order until one has the right connectivity.(Add)
-        for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
+        cnt = 0
+        # 应该要保证发生变异
+        while cnt == 0:
+            # 1. Try the candidates in random order until one has the right connectivity.(Add)
+            for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
+                if random.random() > 0.7:
+                    self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)
+                    cnt += 1
+
+            # 2. Try to mutate learning Rate
             if random.random() > 0.5:
-                self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)
+                self.mutate_learningRate(mutated_dna)
+                cnt += 1
 
-        # 2. Try to mutate learning Rate
-        self.mutate_learningRate(mutated_dna)
+            # 3. mutate the hidden layer's size
+            # self.mutate_hidden_size(dna)
 
-        # 3. mutate the hidden layer's size
-        # self.mutate_hidden_size(dna)
+            # 4. Mutate the vertex (Add)
+            if random.random() > 0.5:
+                self.mutate_vertex(mutated_dna)
+                cnt += 1
 
-        # 4. Mutate the vertex (Add)
-        self.mutate_vertex(mutated_dna)
-        # if random.random() > 0.4:
-        #     self.mutate_vertex(dna)
         return mutated_dna
 
     def _vertex_pair_candidates(self, dna):
@@ -377,12 +390,12 @@ class StructMutation():
 
 
 class Evolution_pop:
-    _population_size_setpoint = 5
-    _max_layer_size = 4
+    _population_size_setpoint = 11
+    _max_layer_size = 10
     _evolve_time = 100
     fitness_pool = []
 
-    EPOCH = 2  # 训练整批数据多少次
+    EPOCH = 5  # 训练整批数据多少次
     BATCH_SIZE = 50
 
     # LR = 0.001          # 学习率
@@ -482,6 +495,9 @@ class Evolution_pop:
             elif len(self.population) < self._population_size_setpoint:
                 print("--reproduce better", better_individual)
                 self._reproduce_and_train_individual(better_individual)
+        self.population.sort(key=lambda i: i.fitness, reverse=True)
+        print(self.population[0].fitness)
+        self.population[0].calculate_flow()
 
     def _kill_individual(self, index):
         ''' kill by the index of population '''
