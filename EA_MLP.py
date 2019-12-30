@@ -117,9 +117,9 @@ class DNA(object):
             vertex.layer_size2zero()
             if len(vertex.edges_in) == 0:
                 vertex.inputs_mutable = self.input_size
-                print("[calculate_flow]->start Node 0:", vertex.inputs_mutable)
+                print("[calculate_flow",self.dna_cnt ,"]->start Node 0:", vertex.inputs_mutable)
             else:
-                print("Node", vertex_id, 'size:', vertex.outputs_mutable, end=': ')
+                print("Node", vertex_id, 'type:',vertex.type, end=': ')
                 for edg in vertex.edges_in:
                     vertex.inputs_mutable += edg.from_vertex.outputs_mutable
                     print("[",
@@ -333,7 +333,7 @@ class StructMutation():
         if dna.has_edge(from_vertex_id, to_vertex_id):
             return False
         else:
-            print("[_mutate_structure]->prepare to :add_edge")
+            print("[_mutate_structure]->prepare to :add_edge",from_vertex_id, to_vertex_id)
             # new_edge = dna.add_edge(from_vertex_id, to_vertex_id, edge_type)
             new_edge = dna.add_edge(from_vertex_id, to_vertex_id)
             # TODO: ...
@@ -390,12 +390,12 @@ class StructMutation():
 
 
 class Evolution_pop:
-    _population_size_setpoint = 11
-    _max_layer_size = 10
-    _evolve_time = 100
+    _population_size_setpoint = 16
+    _max_layer_size = 15
+    _evolve_time = 300
     fitness_pool = []
 
-    EPOCH = 5  # 训练整批数据多少次
+    EPOCH = 3  # 训练整批数据多少次
     BATCH_SIZE = 50
 
     # LR = 0.001          # 学习率
@@ -414,6 +414,8 @@ class Evolution_pop:
             self.population.append(dna_iter)
         self.data = data
         self.struct_mutation = StructMutation()
+
+        self.fitness_dir = {}
 
     def decode(self):
         ''' 对当前population队列中的每个未训练过的个体进行训练 '''
@@ -462,11 +464,14 @@ class Evolution_pop:
                               end=' ')
                 print('')
             dna.fitness = accuracy
-            # 取十种图片测试
+            # 取十种(十张)图片测试
             # test_output = net(test_x[:10])
             # pred_y = torch.max(test_output, 1)[1].data.numpy().squeeze()
             # print(pred_y, 'prediction number')
             # print(test_y[:10].numpy(), 'real number', '\n')
+
+            # 将其fitness储存起来
+            self.fitness_dir[dna.dna_cnt] = accuracy
             print('')
 
     def choose_varition_dna(self):
@@ -496,8 +501,38 @@ class Evolution_pop:
                 print("--reproduce better", better_individual)
                 self._reproduce_and_train_individual(better_individual)
         self.population.sort(key=lambda i: i.fitness, reverse=True)
+
+        # print the best individual
         print(self.population[0].fitness)
         self.population[0].calculate_flow()
+        net = Model(self.population[0])
+        print("[decode].[", self.population[0].dna_cnt, "]", net)
+        # self.pop_show()
+
+    def pop_show(self):
+        ''' 画出种群变化分布图 '''
+        best_individual = self.population[0].dna_cnt
+        live_individual = []
+        for i in self.population:
+            live_individual.append(i.dna_cnt)
+
+        global DNA_cnt
+        show_x = []
+        show_y = []
+        show_color = []
+        for i in range(DNA_cnt + 1):
+            if i in self.fitness_dir:
+                show_x.append(i)
+                show_y.append(self.fitness_dir[i])
+                if i in live_individual:
+                    if i == self.population[0].dna_cnt:
+                        show_color.append('red')
+                    else:
+                        show_color.append('blue')
+                else:
+                    show_color.append('gray')
+        plt.scatter(show_x, show_y, c=show_color, marker='.')
+        plt.show()
 
     def _kill_individual(self, index):
         ''' kill by the index of population '''
@@ -657,3 +692,6 @@ if __name__ == "__main__":
     # test = Evolution_pop(train_loader, test_x, test_y)
     test = Evolution_pop(data)
     test.choose_varition_dna()
+    test.pop_show()
+
+    print()

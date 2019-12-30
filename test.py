@@ -399,3 +399,13 @@ class DNA(object):
 #   test torch 模型的存储与读取
 #
 ####################################################################################
+
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+
+x = np.random.randn(200)
+y = np.random.randn(200)
+
+plt.scatter(x, y, c='gray', marker='.')
+plt.show()
