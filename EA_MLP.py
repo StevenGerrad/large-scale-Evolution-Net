@@ -270,12 +270,12 @@ class StructMutation():
         while cnt == 0:
             # 1. Try the candidates in random order until one has the right connectivity.(Add)
             for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
-                if random.random() > 0.7:
+                if random.random() > 0.8:
                     self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)
                     cnt += 1
 
             # 2. Try to mutate learning Rate
-            if random.random() > 0.5:
+            if random.random() > 0.7:
                 self.mutate_learningRate(mutated_dna)
                 cnt += 1
 
@@ -283,7 +283,7 @@ class StructMutation():
             # self.mutate_hidden_size(dna)
 
             # 4. Mutate the vertex (Add)
-            if random.random() > 0.5:
+            if random.random() > 0.7:
                 self.mutate_vertex(mutated_dna)
                 cnt += 1
 
@@ -333,7 +333,7 @@ class StructMutation():
         if dna.has_edge(from_vertex_id, to_vertex_id):
             return False
         else:
-            print("[_mutate_structure]->prepare to :add_edge",from_vertex_id, to_vertex_id)
+            # print("[_mutate_structure]->prepare to :add_edge",from_vertex_id, to_vertex_id)
             # new_edge = dna.add_edge(from_vertex_id, to_vertex_id, edge_type)
             new_edge = dna.add_edge(from_vertex_id, to_vertex_id)
             # TODO: ...
@@ -377,8 +377,7 @@ class StructMutation():
         if after_vertex_id == 0:
             return mutated_dna
 
-        print('outputs_mutable', dna.vertices[after_vertex_id].outputs_mutable,
-              dna.vertices[after_vertex_id - 1].outputs_mutable)
+        # print('outputs_mutable', dna.vertices[after_vertex_id].outputs_mutable,dna.vertices[after_vertex_id - 1].outputs_mutable)
         vertex_size = random.randint(dna.vertices[after_vertex_id].outputs_mutable,
                                      dna.vertices[after_vertex_id - 1].outputs_mutable)
         # TODO: how it supposed to mutate
@@ -390,12 +389,12 @@ class StructMutation():
 
 
 class Evolution_pop:
-    _population_size_setpoint = 16
-    _max_layer_size = 15
-    _evolve_time = 300
+    _population_size_setpoint = 21
+    _max_layer_size = 20
+    _evolve_time = 500
     fitness_pool = []
 
-    EPOCH = 3  # 训练整批数据多少次
+    EPOCH = 2  # 训练整批数据多少次
     BATCH_SIZE = 50
 
     # LR = 0.001          # 学习率
@@ -495,10 +494,10 @@ class Evolution_pop:
             individual_pair = []
             # (population过大->kill不好的)，反之(population过小->reproduce好的)
             if len(self.population) >= self._population_size_setpoint:
-                print("--kill worse", worse_individual)
+                # print("--kill worse", worse_individual)
                 self._kill_individual(worse_individual)
             elif len(self.population) < self._population_size_setpoint:
-                print("--reproduce better", better_individual)
+                # print("--reproduce better", better_individual)
                 self._reproduce_and_train_individual(better_individual)
         self.population.sort(key=lambda i: i.fitness, reverse=True)
 
@@ -540,7 +539,7 @@ class Evolution_pop:
 
         del self.population[index]
         # debug
-        self._print_population()
+        # self._print_population()
 
     def _reproduce_and_train_individual(self, index):
         ''' 
@@ -555,7 +554,7 @@ class Evolution_pop:
         self.struct_mutation.mutate(son)
         self.population.append(son)
         # debug
-        self._print_population()
+        # self._print_population()
 
     def inherit_DNA(self, dna):
         ''' inderit from parent: reset dna_cnt, fitness '''
