@@ -37,6 +37,11 @@
 # 1.每次挑选两个个体, 确保个体已经被训练过了
 # 2.挑选个体的fitness，(population过大->kill不好的)，反之(population过小->reproduce好的)
 
+# Questiuon:
+# 1. depth_factor 来决定channel, channel要是变小那么depth_factor是小数？若乘积结果不是整数需要取整
+# 2. 仍要控制输出分类结果为one-hot
+# 3. 是否默认维持 padding : 是
+
 import os
 
 import torch
@@ -54,11 +59,16 @@ DNA_cnt = 0
 class DNA(object):
     '''
     learning_rate, vertices[vertex_id]+type, edges[edge_id]
+    由vertex(linear / bn_relu), 和 edge(conv / identity)组成
     '''
     # __dna_cnt = 0
-    input_size = 28 * 28
-    hidden_size = 128
-    output_size = 10
+    input_size_height = 512
+    input_size_width = 512
+    input_size_channel = 3
+
+    output_size_height = 1
+    output_size_width = 1
+    output_size_channel = 10
 
     def __init__(self, learning_rate=0.05):
         '''
@@ -71,26 +81,26 @@ class DNA(object):
         self.learning_rate = learning_rate
 
         # layer
-        l0 = Vertex(edges_in=set(),
-                    edges_out=set(),
-                    inputs_mutable=self.input_size,
-                    outputs_mutable=self.input_size)
-        l1 = Vertex(edges_in=set(),
-                    edges_out=set(),
-                    inputs_mutable=self.hidden_size,
-                    outputs_mutable=self.hidden_size)
-        l2 = Vertex(edges_in=set(),
-                    edges_out=set(),
-                    inputs_mutable=self.output_size,
-                    outputs_mutable=self.output_size)
+        # input layer
+        l0 = Vertex(edges_in=set(), edges_out=set(), inputs_mutable=0, outputs_mutable=0)
+        # Global Pooling layer
+        l1 = Vertex(edges_in=set(), edges_out=set(), inputs_mutable=0, outputs_mutable=0)
+        # output layer
+        l2 = Vertex(edges_in=set(), edges_out=set(), inputs_mutable=0, outputs_mutable=0)
         self.vertices = []
         self.vertices.append(l0)
         self.vertices.append(l1)
         self.vertices.append(l2)
 
         # edge
-        edg1 = Edge(from_vertex=l0, to_vertex=l1)
-        edg2 = Edge(from_vertex=l1, to_vertex=l2)
+        edg1 = Edge(from_vertex=l0,
+                    to_vertex=l1,
+                    type='conv',
+                    depth_factor=1,
+                    filter_half_height=self.input_size_height,
+                    filter_half_width=self.input_size_width,
+                    stride_scale=self.input_size_width)
+        edg2 = Edge(from_vertex=l1, to_vertex=l2, type='identity')
         self.edges = []
         self.edges.append(edg1)
         self.edges.append(edg2)
@@ -103,12 +113,24 @@ class DNA(object):
         class_name = self.__class__.__name__
         print(class_name, "[", self.dna_cnt, "]销毁->fitness", self.fitness, end='\n')
 
-    def add_edge(self, from_vertex_id, to_vertex_id):
+    def add_edge(self,
+                 from_vertex_id,
+                 to_vertex_id,
+                 type='identity',
+                 depth_factor=None,
+                 filter_half_width=None,
+                 filter_half_height=None,
+                 stride_scale=None):
         """
         Adds an edge to the DNA graph, ensuring internal consistency.
         """
         edge = Edge(from_vertex=self.vertices[from_vertex_id],
-                    to_vertex=self.vertices[to_vertex_id])
+                    to_vertex=self.vertices[to_vertex_id],
+                    type=type,
+                    depth_factor=depth_factor,
+                    filter_half_width=filter_half_width,
+                    filter_half_height=filter_half_height,
+                    stride_scale=stride_scale)
         self.edges.append(edge)
         self.vertices[from_vertex_id].edges_out.add(edge)
         self.vertices[to_vertex_id].edges_in.add(edge)
@@ -116,26 +138,24 @@ class DNA(object):
 
     def calculate_flow(self):
         '''
-        按顺序计算神经网络每层的输入输出size, outputs_mutable 默认不需要处理，即size
+        按顺序计算神经网络每层的输入输出参数
         '''
-        for vertex in self.vertices:
-            # 先默认将input_mutable 置为0，然后处理inputs_mutable
-            vertex.layer_size2zero()
-            if len(vertex.edges_in) == 0:
-                vertex.inputs_mutable = self.input_size
-                # print("[calculate_flow]->start:")
-            else:
-                for edg in vertex.edges_in:
-                    vertex.inputs_mutable += edg.from_vertex.outputs_mutable
-                    # print("edge->",i,"from",self.edges[i].from_vertex,"to",self.edges[i].to_vertex,end=' ')
-                    # print("vertex input: ", vertex.inputs_mutable)
-        # outputs_mutable 默认不需要处理，即size
+        self.vertices[0].input_channel = self.input_size_channel
+        self.vertices[0].output_channel = self.input_size_channel
+        self.vertices[-1].input_channel = self.output_size_channel
+        self.vertices[-1].output_channel = self.output_size_channel
+
+        for vertex in self.vertices[1:-2]:
+            for edge in vertex.edges_in:
+                edge.input_channel = edge.from_vertex.input_channel
+                edge.output_channel = edge.input_channel * edge.depth_factor
+                vertex.input_channel += edge.output_channel
 
     def mutate_layer_size(self, v_list=[], s_list=[]):
         for i in range(len(v_list)):
             self.vertices[v_list[i]].outputs_mutable = s_list[i]
 
-    def add_vertex(self, after_vertex_id, vertex_size, vertex_type):
+    def add_vertex(self, after_vertex_id, vertex_type='linear'):
         '''
         3.0: 所有 vertex 和 edg 中记录的都是引用
         '''
@@ -190,41 +210,27 @@ class Vertex(object):
     def __init__(self,
                  edges_in,
                  edges_out,
-                 inputs_mutable,
-                 outputs_mutable,
                  type='linear',
-                 depth_factor=None,
-                 filter_half_width=None,
-                 filter_half_height=None,
-                 stride_scale=None):
+                 inputs_mutable=1,
+                 outputs_mutable=1,
+                 properties_mutable=1):
         '''
         edges_in / edges_out : 使用set 
-        卷积的参数 原本定义在edge中 改为在此定义 
-        each vertex can be combination of 1*conv, 1*relu, 1*bn
+        each vertex can be inlear / 1*relu + 1*bn
         '''
         self.edges_in = edges_in
         self.edges_out = edges_out
-        self.type = type  # ['linear' / 'bn_relu'] / ['conv']
+        self.type = type  # ['linear' / 'bn_relu']
 
         self.inputs_mutable = inputs_mutable
         self.outputs_mutable = outputs_mutable
-        if type == 'conv':
-            # 控制 channel 大小, this.channel = last channel * depth_factor (这样岂不是限制了通道变化情况 ?????)
-            self.depth_factor = depth_factor
-            # 卷积核 size
-            # filter_width = 2 * filter_half_width + 1.
-            self.filter_half_width = filter_half_width
-            self.filter_half_height = filter_half_height
-            # 定义卷积步长
-            # It will be 2ˆstride_scale. WHY ?????
-            self.stride_scale = stride_scale
+        self.properties_mutable = properties_mutable
 
-    def layer_size2zero(self):
-        '''
-        为方便神经网络计算，将 inputs_mutable 的size置为 0
-        '''
-        self.inputs_mutable = 0
-        # self.outputs_mutable = 0
+        self.input_channel = 0
+        # Each vertex represents a 2ˆs x 2ˆs x d block of nodes. s and d are positive
+        # integers computed dynamically from the in-edges. s stands for "scale" so
+        # that 2ˆx x 2ˆs is the spatial size of the activations. d stands for "depth",
+        # the number of channels.
 
 
 class Edge(object):
@@ -232,22 +238,63 @@ class Edge(object):
     No Need:type, depth_factor, filter_half_width, filter_half_height, 
             stride_scale, depth_precedence, scale_precedence
     '''
-    def __init__(self, from_vertex, to_vertex):
+    def __init__(self,
+                 from_vertex,
+                 to_vertex,
+                 type='identity',
+                 depth_factor=None,
+                 filter_half_width=None,
+                 filter_half_height=None,
+                 stride_scale=None):
         self.from_vertex = from_vertex  # Source vertex ID.
         self.to_vertex = to_vertex  # Destination vertex ID.
-        self.state = 1
+        self.type = type
         # In this case, the edge represents a convolution.
-        # 将卷积参数定义在vertex中
+        if type == 'conv':
+            # 控制 channel 大小, this.channel = last channel * depth_factor
+            self.depth_factor = depth_factor
+            # 卷积核 size
+            # filter_width = 2 * filter_half_width + 1.
+            self.filter_half_width = filter_half_width
+            self.filter_half_height = filter_half_height
+            # 定义卷积步长, 卷积步长必须是 2 的幂次方？
+            # Controls the strides(步幅) of the convolution. It will be 2ˆstride_scale. WHY ?????
+            self.stride_scale = stride_scale
+
+        # determine the inputs takes precedence in deciding the resolved depth or scale.
+        # self.depth_precedence = edge_proto.depth_precedence
+        # self.scale_precedence = edge_proto.scale_precedence
+
+        self.input_channel = 0
+        self.output_channel = 0
 
 
 class Model(torch.nn.Module):
     def __init__(self, DNA):
         super(Model, self).__init__()
         self.dna = DNA
-        self.layer = torch.nn.ModuleList()
-        for vertex in DNA.vertices[1:]:
-            # 默认第一层和最后一层非hidden层
-            self.layer.append(torch.nn.Linear(vertex.inputs_mutable, vertex.outputs_mutable))
+        self.layer_vertex = torch.nn.ModuleList()
+        for vertex in DNA.vertices:
+            # 默认第一层和最后一层 vertex 非 hidden 层
+            if vertex.type == 'bn_relu':
+                self.layer_vertex.append(
+                    torch.nn.Sequential(torch.nn.BatchNorm2d(vertex.input_channel),
+                                        torch.nn.ReLU(inplace=True)))
+            else:
+                self.layer.append(None)
+
+        self.layer_edge = torch.nn.ModuleList()
+        for edge in DNA.edges:
+            if edge.type == 'conv':
+                self.layer_edge.append(
+                    torch.nn.Conv2d(edge.input_channel,
+                                    edge.output_channel,
+                                    kernel_size=(edge.filter_half_height * 2 + 1,
+                                                 edge.filter_half_width * 2 + 1),
+                                    stride=edge.stride_scale))
+            else:
+                self.layer_edge.append(None)
+
         self.batch_size = Evolution_pop.BATCH_SIZE
 
     def forward(self, input):

@@ -399,7 +399,7 @@ class DNA(object):
 #   test torch 模型的存储与读取
 #
 ####################################################################################
-
+'''
 import numpy as np
 import random
 import matplotlib.pyplot as plt
@@ -409,3 +409,17 @@ y = np.random.randn(200)
 
 plt.scatter(x, y, c='gray', marker='.')
 plt.show()
+'''
+
+l = [None, 1, None]
+print(l)
+
+l = []
+
+for i in range(10):
+    if i % 2 == 1:
+        l.append(i)
+    else:
+        l.append(None)
+
+print(l)
