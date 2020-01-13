@@ -43,15 +43,17 @@
 # 3. 是否默认维持 padding : 是
 
 import os
-
-import torch
 import matplotlib.pyplot as plt
-import torch.nn.functional as F
 import random
 import copy
-import torchvision
-import torch.utils.data as Data
 import numpy as np
+
+import torch
+import torch.nn.functional as F
+import torch.utils.data as Data
+
+from torch.autograd import Variable
+import torchvision
 
 DNA_cnt = 0
 
@@ -62,8 +64,8 @@ class DNA(object):
     由vertex(linear / bn_relu), 和 edge(conv / identity)组成
     '''
     # __dna_cnt = 0
-    input_size_height = 512
-    input_size_width = 512
+    input_size_height = 32
+    input_size_width = 32
     input_size_channel = 3
 
     output_size_height = 1
@@ -80,27 +82,38 @@ class DNA(object):
         self.fitness = -1.0
         self.learning_rate = learning_rate
 
-        # layer
         # input layer
-        l0 = Vertex(edges_in=set(), edges_out=set(), inputs_mutable=0, outputs_mutable=0)
+        l0 = Vertex(edges_in=set(),
+                    edges_out=set(),
+                    type='identity',
+                    inputs_mutable=0,
+                    outputs_mutable=0,
+                    properties_mutable=0)
         # Global Pooling layer
-        l1 = Vertex(edges_in=set(), edges_out=set(), inputs_mutable=0, outputs_mutable=0)
+        l1 = Vertex(edges_in=set(),
+                    edges_out=set(),
+                    type='identity',
+                    inputs_mutable=0,
+                    outputs_mutable=0,
+                    properties_mutable=0)
         # output layer
-        l2 = Vertex(edges_in=set(), edges_out=set(), inputs_mutable=0, outputs_mutable=0)
+        l2 = Vertex(edges_in=set(),
+                    edges_out=set(),
+                    type='Global Pooling',
+                    inputs_mutable=0,
+                    outputs_mutable=0,
+                    properties_mutable=0)
         self.vertices = []
         self.vertices.append(l0)
         self.vertices.append(l1)
         self.vertices.append(l2)
 
         # edge
-        edg1 = Edge(from_vertex=l0,
-                    to_vertex=l1,
-                    type='conv',
-                    depth_factor=1,
-                    filter_half_height=self.input_size_height,
-                    filter_half_width=self.input_size_width,
-                    stride_scale=self.input_size_width)
-        edg2 = Edge(from_vertex=l1, to_vertex=l2, type='identity')
+        edg1 = Edge(from_vertex=l0, to_vertex=l1, type='linear')
+        edg2 = Edge(from_vertex=l1, to_vertex=l2, type='linear')
+
+        edg1.input_channel = self.input_size_channel
+        edg1.output_channel = self.input_size_channel
         self.edges = []
         self.edges.append(edg1)
         self.edges.append(edg2)
@@ -116,7 +129,7 @@ class DNA(object):
     def add_edge(self,
                  from_vertex_id,
                  to_vertex_id,
-                 type='identity',
+                 edge_type='identity',
                  depth_factor=None,
                  filter_half_width=None,
                  filter_half_height=None,
@@ -126,7 +139,7 @@ class DNA(object):
         """
         edge = Edge(from_vertex=self.vertices[from_vertex_id],
                     to_vertex=self.vertices[to_vertex_id],
-                    type=type,
+                    type=edge_type,
                     depth_factor=depth_factor,
                     filter_half_width=filter_half_width,
                     filter_half_height=filter_half_height,
@@ -141,25 +154,25 @@ class DNA(object):
         按顺序计算神经网络每层的输入输出参数
         '''
         self.vertices[0].input_channel = self.input_size_channel
-        self.vertices[0].output_channel = self.input_size_channel
+        # self.vertices[0].output_channel = self.input_size_channel
         self.vertices[-1].input_channel = self.output_size_channel
-        self.vertices[-1].output_channel = self.output_size_channel
+        # self.vertices[-1].output_channel = self.output_size_channel
 
         for vertex in self.vertices[1:-2]:
             for edge in vertex.edges_in:
                 edge.input_channel = edge.from_vertex.input_channel
-                edge.output_channel = edge.input_channel * edge.depth_factor
+                edge.output_channel = int(edge.input_channel * edge.depth_factor)
                 vertex.input_channel += edge.output_channel
 
     def mutate_layer_size(self, v_list=[], s_list=[]):
         for i in range(len(v_list)):
             self.vertices[v_list[i]].outputs_mutable = s_list[i]
 
-    def add_vertex(self, after_vertex_id, vertex_type='linear'):
+    def add_vertex(self, after_vertex_id, vertex_type='linear', edge_type='identity'):
         '''
         3.0: 所有 vertex 和 edg 中记录的都是引用
         '''
-        # 先寻找那条应该被移除的边
+        # 先寻找那条应该被移除的边, 将其删除
         for i in self.vertices[after_vertex_id - 1].edges_out:
             if i.to_vertex == self.vertices[after_vertex_id]:
                 self.vertices[after_vertex_id - 1].edges_out.remove(i)
@@ -174,16 +187,25 @@ class DNA(object):
                 del self.edges[i]
 
         # 创建新的 vertex, 并加入队列
-        vertex_add = Vertex(edges_in=set(),
-                            edges_out=set(),
-                            inputs_mutable=self.vertices[after_vertex_id - 1].outputs_mutable,
-                            outputs_mutable=vertex_size,
-                            type=vertex_type)
+        vertex_add = Vertex(edges_in=set(), edges_out=set(), type=vertex_type)
         self.vertices.insert(after_vertex_id, vertex_add)
 
         # 创建新的 edge, 并加入队列
-        edge_add1 = Edge(from_vertex=self.vertices[after_vertex_id - 1],
-                         to_vertex=self.vertices[after_vertex_id])
+        if edge_type == 'conv':
+            depth_f = random.random() * 2
+            filter_h = 1
+            filter_w = 1
+            edge_add1 = Edge(from_vertex=self.vertices[after_vertex_id - 1],
+                             to_vertex=self.vertices[after_vertex_id],
+                             type='conv',
+                             depth_factor=depth_f,
+                             filter_half_height=filter_h,
+                             filter_half_width=filter_w,
+                             stride_scale=1)
+        else:
+            edge_add1 = Edge(from_vertex=self.vertices[after_vertex_id - 1],
+                             to_vertex=self.vertices[after_vertex_id],
+                             type='linear')
         edge_add2 = Edge(from_vertex=self.vertices[after_vertex_id],
                          to_vertex=self.vertices[after_vertex_id + 1])
         self.edges.append(edge_add1)
@@ -280,46 +302,52 @@ class Model(torch.nn.Module):
                 self.layer_vertex.append(
                     torch.nn.Sequential(torch.nn.BatchNorm2d(vertex.input_channel),
                                         torch.nn.ReLU(inplace=True)))
+            elif vertex.type == 'Global Pooling':
+                self.layer_vertex.append(torch.nn.AdaptiveAvgPool2d((1, 1)))
             else:
-                self.layer.append(None)
+                self.layer_vertex.append(None)
 
         self.layer_edge = torch.nn.ModuleList()
         for edge in DNA.edges:
+            # TODO: 默认padding补全
             if edge.type == 'conv':
                 self.layer_edge.append(
                     torch.nn.Conv2d(edge.input_channel,
                                     edge.output_channel,
                                     kernel_size=(edge.filter_half_height * 2 + 1,
                                                  edge.filter_half_width * 2 + 1),
-                                    stride=edge.stride_scale))
+                                    stride=pow(2, edge.stride_scale),
+                                    padding=(edge.filter_half_height, edge.filter_half_width)))
             else:
                 self.layer_edge.append(None)
-
         self.batch_size = Evolution_pop.BATCH_SIZE
 
     def forward(self, input):
         '''
         配置每层的 输入、输出、激活函数
         '''
-        # self.x = [ input, ]
-        # x = np.array()
-        # x = torch.stack(input, )
         block_h = input.shape[0]
         x = {
             0: input,
         }
-        for index, layer in enumerate(self.layer, start=1):
+        for index, layer_vertex in enumerate(self.layer_vertex, start=1):
             length = len(x)
-            # a = x[length - 1]
-            a = torch.empty(block_h, 0)
-            for edg in self.dna.vertices[index].edges_in:
-                # a += x[self.dna.edges[i].from_vertex]
-                a = torch.cat((a, x[self.dna.vertices.index(edg.from_vertex)]), dim=1)
-            # a -= x[length - 1]
+
+            a = torch.empty(block_h, 0, 0, 0)
+            for j, edg in enumerate(self.dna.vertices[index].edges_in):
+                ind_edg = self.dna.edges.index(edg)
+                ind_x = self.dna.vertices.index(edg.from_vertex)
+                t = x[ind_edg]
+                if edg.type == 'conv':
+                    t = self.layer_edge[ind_edg](x[ind_edg])
+                if j == 0:
+                    a = torch.empty(block_h, 0, t.shape[2], t.shape[3])
+                a = torch.cat((a, t), dim=1)
+
             if self.dna.vertices[index].type == 'bn_relu':
-                x[index] = F.relu(layer(a))
+                x[index] = layer_vertex(a)
             elif self.dna.vertices[index].type == 'linear':
-                x[index] = layer(a)
+                x[index] = a
         return x[len(x) - 1]
 
 
@@ -333,6 +361,7 @@ class StructMutation():
     def mutate(self, dna):
         '''
         TODO: 可能出现由于概率'没有任何变异'的情况，不能让其发生
+        1. 添加边时：添加identity, 则矩阵拼接时需要维度匹配 / 添加conv则需要是设置好参数
         '''
         # mutated_dna = copy.deepcopy(dna)
         mutated_dna = dna
@@ -348,9 +377,9 @@ class StructMutation():
         # self.mutate_hidden_size(dna)
 
         # 4. Mutate the vertex (Add)
-        self.mutate_vertex(mutated_dna)
-        # if random.random() > 0.4:
-        #     self.mutate_vertex(dna)
+        # self.mutate_vertex(mutated_dna)
+        if random.random() > 0.4:
+            self.mutate_vertex(mutated_dna)
         return mutated_dna
 
     def _vertex_pair_candidates(self, dna):
@@ -391,16 +420,38 @@ class StructMutation():
 
     def _mutate_structure(self, dna, from_vertex_id, to_vertex_id):
         """Adds the edge to the DNA instance."""
-        # edge_id = _random_id()
-        # edge_id = len(dna.edges) + 1
-        # edge_type = random.choice(self._edge_types)
         if dna.has_edge(from_vertex_id, to_vertex_id):
             return False
         else:
-            print("[_mutate_structure]->prepare to :add_edge")
-            # new_edge = dna.add_edge(from_vertex_id, to_vertex_id, edge_type)
-            new_edge = dna.add_edge(from_vertex_id, to_vertex_id)
-            # TODO: ...
+            print("[_mutate_structure]->prepare to :", from_vertex_id, to_vertex_id)
+            # TODO: edge 有两个类型，identity 和 conv (主要调节 stride, 在默认padding补全的情况下)
+            # 1. 若数据维度不变，可以用identity， 则需要检查 stride 是否不变
+            res = True
+            bin_stride = 1
+            for vertex_id, vert in enumerate(dna.vertices[from_vertex_id + 1:to_vertex_id]):
+                edg_direct = vert.edges_in[0]
+                for edg in vert.edges_in[1:]:
+                    if edg.from_vertex == dna.vertices[
+                            vertex_id - 1] and edg.to_vertex == dna.vertices[vertex_id]:
+                        edg_direct = edg
+                        break
+                if edg_direct.stride != 1:
+                    res = False
+                    bin_stride *= edg_direct.stride
+            if res:
+                new_edge = dna.add_edge(from_vertex_id, to_vertex_id)
+                return res
+            # 2. 若数据维度改变(变小)，要用conv
+            depth_f = random.random() * 2
+            filter_h = 1
+            filter_w = 1
+            new_edge = dna.add_edge(from_vertex_id,
+                                    to_vertex_id,
+                                    edge_type='identity',
+                                    depth_factor=depth_f,
+                                    filter_half_height=filter_h,
+                                    filter_half_width=filter_w,
+                                    stride_scale=bin_stride)
             return True
 
     def mutate_hidden_size(self, dna):
@@ -408,21 +459,20 @@ class StructMutation():
         TODO: mutate the hidden layer's size 
         高斯分布随机生成, 对所有 hidden layer 变动...不可取
         '''
+        # for i in list(range(1, len(dna.vertices) - 1)):
+        #     if random.random() > 0.6:
+        #         last = dna.vertices[i].outputs_mutable
+        #         before = dna.vertices[i - 1].outputs_mutable
+        #         after = dna.vertices[i + 1].outputs_mutable
 
-        for i in list(range(1, len(dna.vertices) - 1)):
-            if random.random() > 0.6:
-                last = dna.vertices[i].outputs_mutable
-                before = dna.vertices[i - 1].outputs_mutable
-                after = dna.vertices[i + 1].outputs_mutable
-
-                alpha = min(before - last, last - after) / 3
-                next = last + alpha * np.random.randn(1)
-                next = int(next[0])
-                if next > before:
-                    next = before
-                elif next < after:
-                    next = after
-                dna.vertices[i].outputs_mutable = next
+        #         alpha = min(before - last, last - after) / 3
+        #         next = last + alpha * np.random.randn(1)
+        #         next = int(next[0])
+        #         if next > before:
+        #             next = before
+        #         elif next < after:
+        #             next = after
+        #         dna.vertices[i].outputs_mutable = next
 
     def mutate_learningRate(self, dna):
         # mutated_dna = copy.deepcopy(dna)
@@ -436,20 +486,23 @@ class StructMutation():
     def mutate_vertex(self, dna):
         # mutated_dna = copy.deepcopy(dna)
         mutated_dna = dna
-        # 随机选择一个 vertex_id 插入 vertex, TODO: size 默认在前后两层之间??
+        # 随机选择一个 vertex_id 插入 vertex
         after_vertex_id = random.choice(self._find_allowed_vertices(dna))
         if after_vertex_id == 0:
             return mutated_dna
 
         print('outputs_mutable', dna.vertices[after_vertex_id].outputs_mutable,
               dna.vertices[after_vertex_id - 1].outputs_mutable)
-        vertex_size = random.randint(dna.vertices[after_vertex_id].outputs_mutable,
-                                     dna.vertices[after_vertex_id - 1].outputs_mutable)
         # TODO: how it supposed to mutate
         vertex_type = 'linear'
-        if random.random() > 0.5:
+        if random.random() > 0.2:
             vertex_type = 'bn_relu'
-        mutated_dna.add_vertex(after_vertex_id, vertex_size, vertex_type)
+
+        edge_type = 'identity'
+        if random.random() > 0.2:
+            edge_type = 'conv'
+
+        mutated_dna.add_vertex(after_vertex_id, after_vertex_id, vertex_type, edge_type)
         return mutated_dna
 
 
@@ -473,14 +526,15 @@ class Evolution_pop:
         self.population = []
         for i in range(self._population_size_setpoint):
             dna_iter = DNA()
-            dna_iter.mutate_layer_size(
-                v_list=[1], s_list=[random.randint(dna_iter.output_size, dna_iter.input_size)])
             self.population.append(dna_iter)
         self.data = data
         self.struct_mutation = StructMutation()
 
     def decode(self):
-        ''' 对当前population队列中的每个未训练过的个体进行训练 '''
+        '''
+         对当前population队列中的每个未训练过的个体进行训练 
+         https://www.cnblogs.com/denny402/p/7520063.html
+        '''
         for dna in self.population:
             if dna.fitness != -1.0:
                 continue
@@ -492,8 +546,8 @@ class Evolution_pop:
             # the target label is not one-hotted
             loss_func = torch.nn.CrossEntropyLoss()
 
-            train_loader, test_x, test_y = self.data.getData()
-            test_x = test_x.view(-1, 784)
+            train_loader, testloader = self.data.getData()
+
             # print("[Evolution_pop].[decode]->test_x: ", test_x.shape)
             accuracy = 0
             # training and testing
@@ -501,8 +555,10 @@ class Evolution_pop:
                 step = 0
                 # TODO: 用movan的enumerate会报错，why?
                 max_tep = int(60000 / train_loader.batch_size)
+
+                train_acc = .0
+                len_y = 0
                 for step, (b_x, b_y) in enumerate(train_loader):
-                    b_x = b_x.view(-1, 784)
                     # print("[b_x, b_y].shape: ", b_x.shape, b_y.shape)
                     # 分配 batch data, normalize x when iterate train_loader
                     output = net(b_x)  # cnn output
@@ -511,26 +567,47 @@ class Evolution_pop:
                     optimizer.zero_grad()
                     loss.backward()  # backpropagation, compute gradients
                     optimizer.step()  # apply gradients
-                    if step % 100 == 0:
-                        test_output = net(test_x)
-                        pred_y = torch.max(test_output, 1)[1].data.numpy()
-                        accuracy = float(
-                            (pred_y == test_y.data.numpy()).astype(int).sum()) / float(
-                                test_y.size(0))
+
+                    train_correct = (output == b_y).sum()
+                    train_acc += train_correct.data[0]
+                    len_y += len(b_y)
+
+                    if step % 5 == 0:
+                        pred = net(b_x)
+
+                        # pred_y = torch.max(test_output, 1)[1].data.numpy()
+                        # accuracy = float(
+                        #     (pred_y == test_y.data.numpy()).astype(int).sum()) / float(
+                        #         test_y.size(0))
+
                         # print('Epoch: ', epoch, 'step: ', step,'| train loss: %.4f' % loss.data.numpy(),'| test accuracy: %.2f' % accuracy)
                         print("\r" + 'Epoch: ' + str(epoch) + ' step: ' + str(step) + '[' +
                               ">>" * int(step / 50) + ']',
                               end=' ')
                         print('loss: %.4f' % loss.data.numpy(),
-                              '| accuracy: %.4f' % accuracy,
+                              '| accuracy: %.4f' % train_acc / len_y,
                               end=' ')
                 print('')
-            dna.fitness = accuracy
-            # 取十种图片测试
-            # test_output = net(test_x[:10])
-            # pred_y = torch.max(test_output, 1)[1].data.numpy().squeeze()
-            # print(pred_y, 'prediction number')
-            # print(test_y[:10].numpy(), 'real number', '\n')
+            # evaluation--------------------------------
+            net.eval()
+            eval_loss = 0.
+            eval_acc = 0.
+
+            len_y = 0
+            for batch_x, batch_y in testloader:
+                batch_x, batch_y = Variable(batch_x, volatile=True), Variable(batch_y,
+                                                                              volatile=True)
+                out = net(batch_x)
+                loss = loss_func(out, batch_y)
+                eval_loss += loss.data[0]
+                pred = torch.max(out, 1)[1]
+                num_correct = (pred == batch_y).sum()
+                eval_acc += num_correct.data[0]
+
+                len_y += len(batch_y)
+            print('Test Loss: {:.6f}, Acc: {:.6f}'.format(eval_loss / len_y, eval_acc / len_y))
+
+            dna.fitness = eval_acc / len_y
             print('')
 
     def choose_varition_dna(self):
@@ -617,94 +694,49 @@ class MadeDate:
             self.DOWNLOAD_FSAHION_MNIST = True
         '''
 
-    def scatter2d():
-        n_data = torch.ones(100, 2)  # 数据的基本形态
-        x0 = torch.normal(0.25 * n_data, .1)
-        y0 = torch.zeros(100)
-        x1 = torch.normal(0.5 * n_data, .1)
-        y1 = torch.ones(100)
-        x2 = torch.normal(0.75 * n_data, .1)
-        y2 = torch.ones(100) * 2
+    def CIFR10(self):
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
 
-        # 注意 x, y 数据的数据形式是一定要像下面一样 (torch.cat 是在合并数据)
-        # FloatTensor = 32-bit floating
-        self.x = torch.cat((x0, x1, x2), 0).type(torch.FloatTensor)
-        # LongTensor = 64-bit integer
-        self.y = torch.cat((y0, y1, y2), ).type(torch.LongTensor)
+        # 定义了我们的训练集，名字就叫trainset，至于后面这一堆，其实就是一个类：
+        # torchvision.datasets.CIFAR10( )也是封装好了的，就在我前面提到的torchvision.datasets
+        # 模块中,不必深究，如果想深究就看我这段代码后面贴的图1，其实就是在下载数据
+        #（不翻墙可能会慢一点吧）然后进行变换，可以看到transform就是我们上面定义的transform
+        trainset = torchvision.datasets.CIFAR10(root='./dataset',
+                                                train=True,
+                                                download=False,
+                                                transform=transform)
+        # trainloader其实是一个比较重要的东西，我们后面就是通过trainloader把数据传入网
+        # 络，当然这里的trainloader其实是个变量名，可以随便取，重点是他是由后面的
+        # torch.utils.data.DataLoader()定义的，这个东西来源于torch.utils.data模块，
+        #  网页链接http://pytorch.org/docs/0.3.0/data.html，这个类可见我后面图2
+        self.trainloader = torch.utils.data.DataLoader(trainset,
+                                                       batch_size=self.BATCH_SIZE,
+                                                       shuffle=True,
+                                                       num_workers=2)
+        # 对于测试集的操作和训练集一样，我就不赘述了
+        testset = torchvision.datasets.CIFAR10(root='./dataset',
+                                               train=False,
+                                               download=False,
+                                               transform=transform)
+        self.testloader = torch.utils.data.DataLoader(testset,
+                                                      batch_size=2000,
+                                                      shuffle=False,
+                                                      num_workers=2)
 
-        print("[MadeDate]->x,y.shape", self.x.data.numpy().shape, self.y.data.numpy().shape)
-        # plt.scatter(x.data.numpy()[:, 0], x.data.numpy()[:, 1],c=y.data.numpy(), s=100, lw=0, cmap='RdYlGn')
-        # plt.show()
-
-    def mnist(self):
-        train_data = torchvision.datasets.MNIST(
-            root='./mnist/',  # 保存或者提取位置
-            train=True,  # this is training data
-            transform=torchvision.transforms.ToTensor(),  # 转换 PIL.Image or numpy.ndarray 成
-            # torch.FloatTensor (C x H x W), 训练的时候 normalize 成 [0.0, 1.0] 区间
-            download=self.DOWNLOAD_MNIST,  # 没下载就下载, 下载了就不用再下了
-        )
-        # train_data.train_data = train_data.train_data.reshape(60000, 784)
-        # 转化为one-hot
-        '''
-        idx = train_data.train_labels.view(-1, 1)
-        one_hot_label = torch.FloatTensor(60000,10).zero_().scatter_(1, idx, 1)
-        train_data.train_labels = one_hot_label
-        '''
-        # plot one example
-        print('[mnist].train_data: ', train_data.train_data.size(), end='')  # (60000, 28, 28)
-        print('.train_labels', train_data.train_labels.size())  # (60000)
-        '''
-        plt.imshow(train_data.train_data[0].numpy(), cmap='gray')
-        plt.title('%i' % train_data.train_labels[0])
-        plt.show()
-        '''
-        # 批训练 50samples, 1 channel, 28x28 (50, 1, 28, 28)
-        self.train_loader = Data.DataLoader(dataset=train_data,
-                                            batch_size=self.BATCH_SIZE,
-                                            shuffle=True)
-
-        test_data = torchvision.datasets.MNIST(root='./mnist/', train=False)
-        # 为了节约时间, 测试时只测试前2000个
-        self.test_x = torch.unsqueeze(test_data.test_data, dim=1).type(
-            torch.FloatTensor
-        )[:2000] / 255.  # shape from (2000, 28, 28) to (2000, 1, 28, 28), value in range(0,1)
         # 设置DNA的size
-        DNA.input_size = 28 * 28
-        DNA.output_size = 10
-        return self.train_loader, self.test_x, self.test_y
-
-    def fashion_mnist(self):
-        ''' fashion mnist 数据集 '''
-        train_data = torchvision.datasets.FashionMNIST(
-            root='./FashionMNIST/',  # 保存或者提取位置
-            train=True,  # this is training data
-            transform=torchvision.transforms.ToTensor(),  # 转换 PIL.Image or numpy.ndarray 成
-            # torch.FloatTensor (C x H x W), 训练的时候 normalize 成 [0.0, 1.0] 区间
-            download=self.DOWNLOAD_FSAHION_MNIST,  # 没下载就下载, 下载了就不用再下了
-        )
-        # train_data.train_data = train_data.train_data.reshape(60000, 784)
-        # plot one example
-        print('[fashion_mnist].train_data: ', train_data.train_data.size(),
-              end='')  # (60000, 28, 28)
-        print('.train_labels', train_data.train_labels.size())  # (60000)
-        # 批训练 50samples, 1 channel, 28x28 (50, 1, 28, 28)
-        self.train_loader = Data.DataLoader(dataset=train_data,
-                                            batch_size=self.BATCH_SIZE,
-                                            shuffle=True)
-        test_data = torchvision.datasets.FashionMNIST(root='./FashionMNIST/', train=False)
-        # 为了节约时间, 我们测试时只测试前2000个
-        # shape from (2000, 28, 28) to (2000, 1, 28, 28), value in range(0,1)
-        self.test_x = torch.unsqueeze(test_data.test_data, dim=1).type(
-            torch.FloatTensor)[:2000] / 255.
-        self.test_y = test_data.test_labels[:2000]
-        # 设置DNA的size
-        DNA.input_size = 28 * 28
-        DNA.output_size = 10
-        return self.train_loader, self.test_x, self.test_y
+        DNA.input_size_height = 32
+        DNA.input_size_width = 32
+        DNA.input_size_channel = 3
+        DNA.output_size_height = 1
+        DNA.output_size_width = 1
+        DNA.output_size_channel = 10
+        return self.trainloader, self.testloader
 
     def getData(self):
-        return self.train_loader, self.test_x, self.test_y
+        return self.trainloader, self.testloader
 
 
 if __name__ == "__main__":
@@ -713,7 +745,7 @@ if __name__ == "__main__":
     # 数据集选择
     # train_loader, test_x, test_y = data.getData()
     # train_loader, test_x, test_y = data.mnist()
-    train_loader, test_x, test_y = data.fashion_mnist()
+    train_loader, testloader = data.CIFR10()
 
     # test = Evolution_pop(train_loader, test_x, test_y)
     test = Evolution_pop(data)

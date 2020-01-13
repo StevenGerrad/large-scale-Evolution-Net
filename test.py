@@ -410,6 +410,7 @@ y = np.random.randn(200)
 plt.scatter(x, y, c='gray', marker='.')
 plt.show()
 '''
+'''
 
 l = [None, 1, None]
 print(l)
@@ -423,3 +424,5 @@ for i in range(10):
         l.append(None)
 
 print(l)
+
+'''
