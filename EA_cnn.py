@@ -155,10 +155,10 @@ class DNA(object):
         '''
         self.vertices[0].input_channel = self.input_size_channel
         # self.vertices[0].output_channel = self.input_size_channel
-        self.vertices[-1].input_channel = self.output_size_channel
+        # self.vertices[-1].input_channel = self.output_size_channel
         # self.vertices[-1].output_channel = self.output_size_channel
 
-        for vertex in self.vertices[1:-2]:
+        for vertex in self.vertices[1:]:
             for edge in vertex.edges_in:
                 edge.input_channel = edge.from_vertex.input_channel
                 edge.output_channel = int(edge.input_channel * edge.depth_factor)
@@ -172,6 +172,7 @@ class DNA(object):
         '''
         3.0: 所有 vertex 和 edg 中记录的都是引用
         '''
+        changed_edge = None
         # 先寻找那条应该被移除的边, 将其删除
         for i in self.vertices[after_vertex_id - 1].edges_out:
             if i.to_vertex == self.vertices[after_vertex_id]:
@@ -184,7 +185,7 @@ class DNA(object):
         for i, edge in enumerate(self.edges):
             if edge.from_vertex == self.vertices[
                     after_vertex_id - 1] and edge.to_vertex == self.vertices[after_vertex_id]:
-                del self.edges[i]
+                changed_edge = self.edges[i]
 
         # 创建新的 vertex, 并加入队列
         vertex_add = Vertex(edges_in=set(), edges_out=set(), type=vertex_type)
@@ -206,14 +207,15 @@ class DNA(object):
             edge_add1 = Edge(from_vertex=self.vertices[after_vertex_id - 1],
                              to_vertex=self.vertices[after_vertex_id],
                              type='linear')
-        edge_add2 = Edge(from_vertex=self.vertices[after_vertex_id],
-                         to_vertex=self.vertices[after_vertex_id + 1])
+        # 取代的那条边后移
+        changed_edge.from_vertex = self.vertices[after_vertex_id]
+        # edge_add2 = Edge(from_vertex=self.vertices[after_vertex_id],to_vertex=self.vertices[after_vertex_id + 1])
         self.edges.append(edge_add1)
-        self.edges.append(edge_add2)
+        # self.edges.append(edge_add2)
 
         self.vertices[after_vertex_id - 1].edges_out.add(edge_add1)
-        vertex_add.edges_in.add(edge_add1), vertex_add.edges_out.add(edge_add2)
-        self.vertices[after_vertex_id + 1].edges_in.add(edge_add2)
+        vertex_add.edges_in.add(edge_add1), vertex_add.edges_out.add(changed_edge)
+        self.vertices[after_vertex_id + 1].edges_in.add(changed_edge)
 
     def has_edge(self, from_vertex_id, to_vertex_id):
         vertex_before = self.vertices[from_vertex_id]
@@ -264,17 +266,18 @@ class Edge(object):
                  from_vertex,
                  to_vertex,
                  type='identity',
-                 depth_factor=None,
+                 depth_factor=1,
                  filter_half_width=None,
                  filter_half_height=None,
                  stride_scale=None):
         self.from_vertex = from_vertex  # Source vertex ID.
         self.to_vertex = to_vertex  # Destination vertex ID.
         self.type = type
+
         # In this case, the edge represents a convolution.
+        # 控制 channel 大小, this.channel = last channel * depth_factor
+        self.depth_factor = depth_factor
         if type == 'conv':
-            # 控制 channel 大小, this.channel = last channel * depth_factor
-            self.depth_factor = depth_factor
             # 卷积核 size
             # filter_width = 2 * filter_half_width + 1.
             self.filter_half_width = filter_half_width
@@ -303,7 +306,10 @@ class Model(torch.nn.Module):
                     torch.nn.Sequential(torch.nn.BatchNorm2d(vertex.input_channel),
                                         torch.nn.ReLU(inplace=True)))
             elif vertex.type == 'Global Pooling':
-                self.layer_vertex.append(torch.nn.AdaptiveAvgPool2d((1, 1)))
+                self.layer_vertex.append(
+                    torch.nn.Sequential(
+                        # torch.nn.AdaptiveAvgPool2d((1, 1)),
+                        torch.nn.Linear(vertex.input_channel, DNA.output_size_channel)))
             else:
                 self.layer_vertex.append(None)
 
@@ -330,24 +336,31 @@ class Model(torch.nn.Module):
         x = {
             0: input,
         }
-        for index, layer_vertex in enumerate(self.layer_vertex, start=1):
+        for index, layer_vert in enumerate(self.layer_vertex[1:], start=1):
             length = len(x)
 
             a = torch.empty(block_h, 0, 0, 0)
             for j, edg in enumerate(self.dna.vertices[index].edges_in):
                 ind_edg = self.dna.edges.index(edg)
                 ind_x = self.dna.vertices.index(edg.from_vertex)
-                t = x[ind_edg]
+                t = x[ind_x]
                 if edg.type == 'conv':
-                    t = self.layer_edge[ind_edg](x[ind_edg])
+                    t = self.layer_edge[ind_edg](x[ind_x])
                 if j == 0:
                     a = torch.empty(block_h, 0, t.shape[2], t.shape[3])
                 a = torch.cat((a, t), dim=1)
 
-            if self.dna.vertices[index].type == 'bn_relu':
-                x[index] = layer_vertex(a)
-            elif self.dna.vertices[index].type == 'linear':
+            if self.dna.vertices[index].type == 'identity':
                 x[index] = a
+            elif self.dna.vertices[index].type == 'bn_relu':
+                x[index] = layer_vert(a)
+            elif self.dna.vertices[index].type == 'Global Pooling':
+                temp = torch.nn.AdaptiveAvgPool2d((1, 1))
+                a = temp(a)
+                a = torch.squeeze(a, 3)
+                a = torch.squeeze(a, 2)
+                x[index] = layer_vert(a)
+
         return x[len(x) - 1]
 
 
@@ -507,13 +520,14 @@ class StructMutation():
 
 
 class Evolution_pop:
-    _population_size_setpoint = 5
-    _max_layer_size = 4
+    _population_size_setpoint = 4
+    _max_layer_size = 3
     _evolve_time = 100
     fitness_pool = []
 
     EPOCH = 2  # 训练整批数据多少次
     BATCH_SIZE = 50
+    N_CLASSES = 10
 
     # LR = 0.001          # 学习率
 
@@ -562,17 +576,21 @@ class Evolution_pop:
                     # print("[b_x, b_y].shape: ", b_x.shape, b_y.shape)
                     # 分配 batch data, normalize x when iterate train_loader
                     output = net(b_x)  # cnn output
+                    idy = b_y.view(-1, 1)
+                    # b_y = torch.zeros(self.BATCH_SIZE, 10).scatter_(1, idy, 1).long()
+
                     loss = loss_func(output, b_y)  # cross entropy loss
                     # clear gradients for this training step
                     optimizer.zero_grad()
                     loss.backward()  # backpropagation, compute gradients
                     optimizer.step()  # apply gradients
 
-                    train_correct = (output == b_y).sum()
-                    train_acc += train_correct.data[0]
-                    len_y += len(b_y)
+                    # target = torch.zeros(self.BATCH_SIZE, 10).scatter_(1, idy, 1).long()
+                    # train_correct = (output == target).sum()
+                    # train_acc += train_correct.data[0]
+                    # len_y += len(target)
 
-                    if step % 5 == 0:
+                    if step % 50 == 0:
                         pred = net(b_x)
 
                         # pred_y = torch.max(test_output, 1)[1].data.numpy()
@@ -580,35 +598,65 @@ class Evolution_pop:
                         #     (pred_y == test_y.data.numpy()).astype(int).sum()) / float(
                         #         test_y.size(0))
 
+                        # accuracy = self.Accuracy(net, testloader)
                         # print('Epoch: ', epoch, 'step: ', step,'| train loss: %.4f' % loss.data.numpy(),'| test accuracy: %.2f' % accuracy)
                         print("\r" + 'Epoch: ' + str(epoch) + ' step: ' + str(step) + '[' +
-                              ">>" * int(step / 50) + ']',
+                              ">>>" * int(step / 50) + ']',
                               end=' ')
-                        print('loss: %.4f' % loss.data.numpy(),
-                              '| accuracy: %.4f' % train_acc / len_y,
-                              end=' ')
+                        # print('loss: %.4f' % loss.data.numpy(), '| accuracy: %.4f' % accuracy, end=' ')
+                        print('loss: %.4f' % loss.data.numpy(), end=' ')
                 print('')
+
             # evaluation--------------------------------
-            net.eval()
-            eval_loss = 0.
-            eval_acc = 0.
 
-            len_y = 0
-            for batch_x, batch_y in testloader:
-                batch_x, batch_y = Variable(batch_x, volatile=True), Variable(batch_y,
-                                                                              volatile=True)
-                out = net(batch_x)
-                loss = loss_func(out, batch_y)
-                eval_loss += loss.data[0]
-                pred = torch.max(out, 1)[1]
-                num_correct = (pred == batch_y).sum()
-                eval_acc += num_correct.data[0]
+            # net.eval()
+            # eval_loss = 0.
+            # eval_acc = 0.
 
-                len_y += len(batch_y)
-            print('Test Loss: {:.6f}, Acc: {:.6f}'.format(eval_loss / len_y, eval_acc / len_y))
+            # len_y = 0
+            # for batch_x, batch_y in testloader:
+            #     batch_x, batch_y = Variable(batch_x, volatile=True), Variable(batch_y,
+            #                                                                   volatile=True)
+            #     out = net(batch_x)
+            #     # b_y = torch.zeros(self.BATCH_SIZE, 10).scatter_(1, b_y, 1)
 
-            dna.fitness = eval_acc / len_y
+            #     loss = loss_func(out, batch_y)
+            #     eval_loss += loss.data[0]
+            #     pred = torch.max(out, 1)[1]
+
+            #     target = torch.zeros(self.BATCH_SIZE, 10).scatter_(1, batch_y, 1).long()
+            #     num_correct = (pred == target).sum()
+            #     eval_acc += num_correct.data[0]
+
+            #     len_y += len(target)
+            # print('Test Loss: {:.6f}, Acc: {:.6f}'.format(eval_loss / len_y, eval_acc / len_y))
+
+            accuracy = self.Accuracy(net, testloader)
+            print('----- Accuracy: {:.6f} -----'.format(accuracy))
+            # dna.fitness = eval_acc / len_y
+            dna.fitness = accuracy
             print('')
+
+    def Accuracy(self, net, testloader):
+        ''' https://blog.csdn.net/Arctic_Beacon/article/details/85068188 '''
+        classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+        class_correct = list(0. for i in range(self.N_CLASSES))
+        class_total = list(0. for i in range(self.N_CLASSES))
+        with torch.no_grad():
+            for data in testloader:
+                images, labels = data
+                outputs = net(images)
+                _, predicted = torch.max(outputs, 1)
+                c = (predicted == labels).squeeze()
+                for i in range(self.BATCH_SIZE):
+                    label = labels[i]
+                    class_correct[label] += c[i].item()
+                    class_total[label] += 1
+
+        # for i in range(self.N_CLASSES):
+        #     print('Accuracy of %5s : %2d %%' % (classes[i], 100 * class_correct[i] / class_total[i]))
+        return sum(class_correct) / sum(class_total)
 
     def choose_varition_dna(self):
         '''

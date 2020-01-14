@@ -426,3 +426,38 @@ for i in range(10):
 print(l)
 
 '''
+'''
+import torch
+
+a = torch.rand(2, 2, 3, 3)
+torch.nn.AdaptiveAvgPool2d((1, 1))
+m = torch.nn.AdaptiveAvgPool2d((1, 1))
+input = torch.randn(1, 2, 3, 4)
+output = m(input)
+
+print(output.size())
+
+output = torch.squeeze(output, 3)
+output = torch.squeeze(output, 2)
+
+print(output.size())
+
+'''
+
+#############################################################################################
+#
+# https://blog.csdn.net/jacke121/article/details/82812218
+#
+#############################################################################################
+
+import torch
+
+loss = torch.nn.CrossEntropyLoss()
+input = torch.randn(3, 5, requires_grad=True)
+print(input)
+# target = torch.empty(3, dtype=torch.long).random_(5)
+target = torch.randn(3, 5, requires_grad=True).long()
+print(target)
+output = loss(input, target)
+
+print(output)

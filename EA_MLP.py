@@ -117,9 +117,9 @@ class DNA(object):
             vertex.layer_size2zero()
             if len(vertex.edges_in) == 0:
                 vertex.inputs_mutable = self.input_size
-                print("[calculate_flow",self.dna_cnt ,"]->start Node 0:", vertex.inputs_mutable)
+                print("[calculate_flow", self.dna_cnt, "]->start Node 0:", vertex.inputs_mutable)
             else:
-                print("Node", vertex_id,vertex.type,vertex.outputs_mutable, end=': ')
+                print("Node", vertex_id, vertex.type, vertex.outputs_mutable, end=': ')
                 for edg in vertex.edges_in:
                     vertex.inputs_mutable += edg.from_vertex.outputs_mutable
                     print("[",
@@ -443,6 +443,7 @@ class Evolution_pop:
                     # print("[b_x, b_y].shape: ", b_x.shape, b_y.shape)
                     # 分配 batch data, normalize x when iterate train_loader
                     output = net(b_x)  # cnn output
+
                     loss = loss_func(output, b_y)  # cross entropy loss
                     # clear gradients for this training step
                     optimizer.zero_grad()
