@@ -42,11 +42,15 @@
 # 2. 仍要控制输出分类结果为one-hot
 # 3. 是否默认维持 padding : 是
 
+# ATTENTION
+# 1.sride 应为0，这样才不会收缩 (2^0 = 1)
+
 import os
 import matplotlib.pyplot as plt
 import random
 import copy
 import numpy as np
+import math
 
 import torch
 import torch.nn.functional as F
@@ -85,14 +89,14 @@ class DNA(object):
         # input layer
         l0 = Vertex(edges_in=set(),
                     edges_out=set(),
-                    type='identity',
+                    type='linear',
                     inputs_mutable=0,
                     outputs_mutable=0,
                     properties_mutable=0)
         # Global Pooling layer
         l1 = Vertex(edges_in=set(),
                     edges_out=set(),
-                    type='identity',
+                    type='linear',
                     inputs_mutable=0,
                     outputs_mutable=0,
                     properties_mutable=0)
@@ -109,8 +113,8 @@ class DNA(object):
         self.vertices.append(l2)
 
         # edge
-        edg1 = Edge(from_vertex=l0, to_vertex=l1, type='linear')
-        edg2 = Edge(from_vertex=l1, to_vertex=l2, type='linear')
+        edg1 = Edge(from_vertex=l0, to_vertex=l1, type='identity')
+        edg2 = Edge(from_vertex=l1, to_vertex=l2, type='identity')
 
         edg1.input_channel = self.input_size_channel
         edg1.output_channel = self.input_size_channel
@@ -130,10 +134,10 @@ class DNA(object):
                  from_vertex_id,
                  to_vertex_id,
                  edge_type='identity',
-                 depth_factor=None,
+                 depth_factor=1,
                  filter_half_width=None,
                  filter_half_height=None,
-                 stride_scale=None):
+                 stride_scale=0):
         """
         Adds an edge to the DNA graph, ensuring internal consistency.
         """
@@ -158,11 +162,27 @@ class DNA(object):
         # self.vertices[-1].input_channel = self.output_size_channel
         # self.vertices[-1].output_channel = self.output_size_channel
 
-        for vertex in self.vertices[1:]:
+        for i, vertex in enumerate(self.vertices[1:], start=1):
+            vertex.input_channel = 0
+            print('vertex [', i, '].{}'.format(vertex.input_channel), end=' ')
             for edge in vertex.edges_in:
                 edge.input_channel = edge.from_vertex.input_channel
                 edge.output_channel = int(edge.input_channel * edge.depth_factor)
                 vertex.input_channel += edge.output_channel
+
+                f_ver = self.vertices.index(edge.from_vertex)
+                if edge.type == 'identity':
+                    f_h = 'N'
+                else:
+                    f_h = edge.filter_half_height
+                if edge.type == 'identity':
+                    f_w = 'N'
+                else:
+                    f_w = edge.filter_half_width
+                print(', {}.{}_s{},{},{}'.format(f_ver, edge.type[0], edge.stride_scale, f_h, f_w),
+                      end=' ')
+            print()
+        print('[calculate_flow] finish')
 
     def mutate_layer_size(self, v_list=[], s_list=[]):
         for i in range(len(v_list)):
@@ -196,17 +216,18 @@ class DNA(object):
             depth_f = random.random() * 2
             filter_h = 1
             filter_w = 1
+            stride_s = math.floor(random.random() * 2)
             edge_add1 = Edge(from_vertex=self.vertices[after_vertex_id - 1],
                              to_vertex=self.vertices[after_vertex_id],
                              type='conv',
                              depth_factor=depth_f,
                              filter_half_height=filter_h,
                              filter_half_width=filter_w,
-                             stride_scale=1)
+                             stride_scale=0)
         else:
             edge_add1 = Edge(from_vertex=self.vertices[after_vertex_id - 1],
                              to_vertex=self.vertices[after_vertex_id],
-                             type='linear')
+                             type='identity')
         # 取代的那条边后移
         changed_edge.from_vertex = self.vertices[after_vertex_id]
         # edge_add2 = Edge(from_vertex=self.vertices[after_vertex_id],to_vertex=self.vertices[after_vertex_id + 1])
@@ -269,7 +290,7 @@ class Edge(object):
                  depth_factor=1,
                  filter_half_width=None,
                  filter_half_height=None,
-                 stride_scale=None):
+                 stride_scale=0):
         self.from_vertex = from_vertex  # Source vertex ID.
         self.to_vertex = to_vertex  # Destination vertex ID.
         self.type = type
@@ -277,14 +298,15 @@ class Edge(object):
         # In this case, the edge represents a convolution.
         # 控制 channel 大小, this.channel = last channel * depth_factor
         self.depth_factor = depth_factor
+        # Controls the strides(步幅) of the convolution. It will be 2ˆstride_scale. WHY ?????
+        self.stride_scale = stride_scale
+
         if type == 'conv':
             # 卷积核 size
             # filter_width = 2 * filter_half_width + 1.
             self.filter_half_width = filter_half_width
             self.filter_half_height = filter_half_height
             # 定义卷积步长, 卷积步长必须是 2 的幂次方？
-            # Controls the strides(步幅) of the convolution. It will be 2ˆstride_scale. WHY ?????
-            self.stride_scale = stride_scale
 
         # determine the inputs takes precedence in deciding the resolved depth or scale.
         # self.depth_precedence = edge_proto.depth_precedence
@@ -299,7 +321,9 @@ class Model(torch.nn.Module):
         super(Model, self).__init__()
         self.dna = DNA
         self.layer_vertex = torch.nn.ModuleList()
-        for vertex in DNA.vertices:
+        print('init vertex', end='')
+        for i, vertex in enumerate(DNA.vertices):
+            print('v{} '.format(i), end='')
             # 默认第一层和最后一层 vertex 非 hidden 层
             if vertex.type == 'bn_relu':
                 self.layer_vertex.append(
@@ -314,9 +338,14 @@ class Model(torch.nn.Module):
                 self.layer_vertex.append(None)
 
         self.layer_edge = torch.nn.ModuleList()
-        for edge in DNA.edges:
+        print('\ninit edges', end='')
+        for i, edge in enumerate(DNA.edges):
             # TODO: 默认padding补全
+            print('e{}:'.format(i), end='')
             if edge.type == 'conv':
+                print('{},{},{}'.format(edge.filter_half_height, edge.filter_half_width,
+                                        edge.stride_scale),
+                      end=' ')
                 self.layer_edge.append(
                     torch.nn.Conv2d(edge.input_channel,
                                     edge.output_channel,
@@ -325,7 +354,9 @@ class Model(torch.nn.Module):
                                     stride=pow(2, edge.stride_scale),
                                     padding=(edge.filter_half_height, edge.filter_half_width)))
             else:
+                print(end=' ')
                 self.layer_edge.append(None)
+        print('')
         self.batch_size = Evolution_pop.BATCH_SIZE
 
     def forward(self, input):
@@ -350,7 +381,7 @@ class Model(torch.nn.Module):
                     a = torch.empty(block_h, 0, t.shape[2], t.shape[3])
                 a = torch.cat((a, t), dim=1)
 
-            if self.dna.vertices[index].type == 'identity':
+            if self.dna.vertices[index].type == 'linear':
                 x[index] = a
             elif self.dna.vertices[index].type == 'bn_relu':
                 x[index] = layer_vert(a)
@@ -378,21 +409,25 @@ class StructMutation():
         '''
         # mutated_dna = copy.deepcopy(dna)
         mutated_dna = dna
-        # 1. Try the candidates in random order until one has the right connectivity.(Add)
-        for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
-            if random.random() > 0.5:
-                self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)
+        mutated_cnt = 0
+        while mutated_cnt == 0:
+            # 1. Try the candidates in random order until one has the right connectivity.(Add)
+            for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
+                if random.random() > 0.5:
+                    mutated_cnt += 1
+                    self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)
 
-        # 2. Try to mutate learning Rate
-        self.mutate_learningRate(mutated_dna)
+            # 2. Try to mutate learning Rate
+            self.mutate_learningRate(mutated_dna)
 
-        # 3. mutate the hidden layer's size
-        # self.mutate_hidden_size(dna)
+            # 3. mutate the hidden layer's size
+            # self.mutate_hidden_size(dna)
 
-        # 4. Mutate the vertex (Add)
-        # self.mutate_vertex(mutated_dna)
-        if random.random() > 0.4:
-            self.mutate_vertex(mutated_dna)
+            # 4. Mutate the vertex (Add)
+            # self.mutate_vertex(mutated_dna)
+            if random.random() > 0.4:
+                mutated_cnt += 1
+                self.mutate_vertex(mutated_dna)
         return mutated_dna
 
     def _vertex_pair_candidates(self, dna):
@@ -436,31 +471,33 @@ class StructMutation():
         if dna.has_edge(from_vertex_id, to_vertex_id):
             return False
         else:
-            print("[_mutate_structure]->prepare to :", from_vertex_id, to_vertex_id)
             # TODO: edge 有两个类型，identity 和 conv (主要调节 stride, 在默认padding补全的情况下)
             # 1. 若数据维度不变，可以用identity， 则需要检查 stride 是否不变
             res = True
-            bin_stride = 1
-            for vertex_id, vert in enumerate(dna.vertices[from_vertex_id + 1:to_vertex_id]):
-                edg_direct = vert.edges_in[0]
-                for edg in vert.edges_in[1:]:
+            bin_stride = 0
+            for vertex_id, vert in enumerate(dna.vertices[from_vertex_id + 1:to_vertex_id],
+                                             start=from_vertex_id + 1):
+                edg_direct = None
+                for edg in vert.edges_in:
                     if edg.from_vertex == dna.vertices[
                             vertex_id - 1] and edg.to_vertex == dna.vertices[vertex_id]:
                         edg_direct = edg
                         break
-                if edg_direct.stride != 1:
+                if edg_direct.stride_scale != 0:
                     res = False
-                    bin_stride *= edg_direct.stride
-            if res:
+                    bin_stride += edg_direct.stride_scale
+            if res and random.random() > 0.6:
+                print("[add_edge]->identity:", from_vertex_id, to_vertex_id)
                 new_edge = dna.add_edge(from_vertex_id, to_vertex_id)
                 return res
             # 2. 若数据维度改变(变小)，要用conv
-            depth_f = random.random() * 2
+            print("[add_edge]->conv:", from_vertex_id, to_vertex_id)
+            depth_f = max(1.0, random.random() * 2)
             filter_h = 1
             filter_w = 1
             new_edge = dna.add_edge(from_vertex_id,
                                     to_vertex_id,
-                                    edge_type='identity',
+                                    edge_type='conv',
                                     depth_factor=depth_f,
                                     filter_half_height=filter_h,
                                     filter_half_width=filter_w,
@@ -515,17 +552,17 @@ class StructMutation():
         if random.random() > 0.2:
             edge_type = 'conv'
 
-        mutated_dna.add_vertex(after_vertex_id, after_vertex_id, vertex_type, edge_type)
+        mutated_dna.add_vertex(after_vertex_id, vertex_type, edge_type)
         return mutated_dna
 
 
 class Evolution_pop:
-    _population_size_setpoint = 4
-    _max_layer_size = 3
+    _population_size_setpoint = 6
+    _max_layer_size = 5
     _evolve_time = 100
     fitness_pool = []
 
-    EPOCH = 2  # 训练整批数据多少次
+    EPOCH = 1  # 训练整批数据多少次
     BATCH_SIZE = 50
     N_CLASSES = 10
 
