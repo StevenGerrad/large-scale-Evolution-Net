@@ -267,6 +267,9 @@ class Vertex(object):
         self.edges_out = edges_out
         self.type = type  # ['linear' / 'bn_relu']
 
+        #初始化权值空
+        self.weight = None
+
         self.inputs_mutable = inputs_mutable
         self.outputs_mutable = outputs_mutable
         self.properties_mutable = properties_mutable
@@ -294,6 +297,8 @@ class Edge(object):
         self.from_vertex = from_vertex  # Source vertex ID.
         self.to_vertex = to_vertex  # Destination vertex ID.
         self.type = type
+        # 初始化权值空
+        self.weight = None
 
         # In this case, the edge represents a convolution.
         # 控制 channel 大小, this.channel = last channel * depth_factor
@@ -330,10 +335,16 @@ class Model(torch.nn.Module):
                     torch.nn.Sequential(torch.nn.BatchNorm2d(vertex.input_channel),
                                         torch.nn.ReLU(inplace=True)))
             elif vertex.type == 'Global Pooling':
-                self.layer_vertex.append(
-                    torch.nn.Sequential(
-                        # torch.nn.AdaptiveAvgPool2d((1, 1)),
-                        torch.nn.Linear(vertex.input_channel, DNA.output_size_channel)))
+                w = torch.nn.Linear(vertex.input_channel, DNA.output_size_channel)
+                # 注意vertex.weight是sequential
+                if vertex.weight != None and vertex.weight[0].weight.shape == w.weight.shape:
+                    print('[load param]', end = ' ')
+                    self.layer_vertex.append(vertex.weight)
+                else:
+                    self.layer_vertex.append(
+                        torch.nn.Sequential(
+                            # torch.nn.AdaptiveAvgPool2d((1, 1)),
+                            w))
             else:
                 self.layer_vertex.append(None)
 
@@ -346,13 +357,17 @@ class Model(torch.nn.Module):
                 print('{},{},{}'.format(edge.filter_half_height, edge.filter_half_width,
                                         edge.stride_scale),
                       end=' ')
-                self.layer_edge.append(
-                    torch.nn.Conv2d(edge.input_channel,
+                w = torch.nn.Conv2d(edge.input_channel,
                                     edge.output_channel,
                                     kernel_size=(edge.filter_half_height * 2 + 1,
                                                  edge.filter_half_width * 2 + 1),
                                     stride=pow(2, edge.stride_scale),
-                                    padding=(edge.filter_half_height, edge.filter_half_width)))
+                                    padding=(edge.filter_half_height, edge.filter_half_width))
+                if edge.weight != None and edge.weight.weight.shape == w.weight.shape:
+                    print('[load param]', end = ' ')
+                    self.layer_edge.append(edge.weight)
+                else:
+                    self.layer_edge.append(w)
             else:
                 print(end=' ')
                 self.layer_edge.append(None)
@@ -581,6 +596,23 @@ class Evolution_pop:
         self.data = data
         self.struct_mutation = StructMutation()
 
+    def save_weight(self, net, DNA):
+        # 使用和init相似代码保存权重
+        for i, vertex in enumerate(DNA.vertices):
+            # 默认第一层和最后一层 vertex 非 hidden 层
+            if vertex.type == 'bn_relu':
+                pass
+            elif vertex.type == 'Global Pooling':
+                vertex.weight = net.layer_vertex[i]
+            else:
+                pass
+        for i, edge in enumerate(DNA.edges):
+            if edge.type == 'conv':
+                edge.weight = net.layer_edge[i]
+            else:
+                pass
+        print('[save_weight] done')
+
     def decode(self):
         '''
          对当前population队列中的每个未训练过的个体进行训练 
@@ -641,7 +673,7 @@ class Evolution_pop:
                               ">>>" * int(step / 50) + ']',
                               end=' ')
                         # print('loss: %.4f' % loss.data.numpy(), '| accuracy: %.4f' % accuracy, end=' ')
-                        print('loss: %.4f' % loss.data.numpy(), end=' ')
+                        print('loss: %.4f' % loss.data.numpy(), end=' ', flush = True) # linux下需要flush
                 print('')
 
             # evaluation--------------------------------
@@ -672,6 +704,8 @@ class Evolution_pop:
             print('----- Accuracy: {:.6f} -----'.format(accuracy))
             # dna.fitness = eval_acc / len_y
             dna.fitness = accuracy
+            # 保存权重
+            self.save_weight(net, dna)
             print('')
 
     def Accuracy(self, net, testloader):
