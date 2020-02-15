@@ -1,10 +1,9 @@
 # The set contains the following mutations:
 
-# • 学习率 ALTER-LEARNING-RATE (sampling details below).
+# √• 学习率 ALTER-LEARNING-RATE (sampling details below).
 # • 线性 IDENTITY (effectively means “keep training”).
-# • 权重 RESET-WEIGHTS (sampled as in He et al. (2015), for
-#       example).
-# • 增 INSERT-CONVOLUTION (inserts a convolution at a random location in the “convolutional
+# • 权重 RESET-WEIGHTS (sampled as in He et al. (2015), for example).
+# √• 增 INSERT-CONVOLUTION (inserts a convolution at a random location in the “convolutional
 #       backbone”, as in Figure 1. The inserted convolution has 3 × 3 filters, strides
 #       of 1 or 2 at random, number of channels same as input.May apply batch-normalization
 #       and ReLU activation or none at random).
@@ -14,7 +13,7 @@
 # • 滤波器大小 FILTER-SIZE (horizontal or vertical at random, on random convolution, odd values only).
 # • INSERT-ONE-TO-ONE (inserts a one-to-one/identity
 #       connection, analogous to insert-convolution mutation).
-# • 增跳层 ADD-SKIP (identity between random layers).
+# √• 增跳层 ADD-SKIP (identity between random layers).
 # • 删跳层 REMOVE-SKIP (removes random skip).
 
 # 主要的组合实际为: conv+bn+relu
@@ -213,7 +212,7 @@ class DNA(object):
 
         # 创建新的 edge, 并加入队列
         if edge_type == 'conv':
-            depth_f = random.random() * 2
+            depth_f = max(1.0, random.random() * 4)
             filter_h = 1
             filter_w = 1
             stride_s = math.floor(random.random() * 2)
@@ -343,8 +342,8 @@ class Model(torch.nn.Module):
             # TODO: 默认padding补全
             print('e{}:'.format(i), end='')
             if edge.type == 'conv':
-                print('{},{},{}'.format(edge.filter_half_height, edge.filter_half_width,
-                                        edge.stride_scale),
+                print('{},{},{} |'.format(edge.filter_half_height, edge.filter_half_width,
+                                          edge.stride_scale),
                       end=' ')
                 self.layer_edge.append(
                     torch.nn.Conv2d(edge.input_channel,
@@ -354,7 +353,7 @@ class Model(torch.nn.Module):
                                     stride=pow(2, edge.stride_scale),
                                     padding=(edge.filter_half_height, edge.filter_half_width)))
             else:
-                print(end=' ')
+                print(end=' |')
                 self.layer_edge.append(None)
         print('')
         self.batch_size = Evolution_pop.BATCH_SIZE
@@ -413,7 +412,8 @@ class StructMutation():
         while mutated_cnt == 0:
             # 1. Try the candidates in random order until one has the right connectivity.(Add)
             for from_vertex_id, to_vertex_id in self._vertex_pair_candidates(dna):
-                if random.random() > 0.5:
+                # 防止每次变异次数过多
+                if random.random() < pow(0.4, mutated_cnt + 1):
                     mutated_cnt += 1
                     self._mutate_structure(mutated_dna, from_vertex_id, to_vertex_id)
 
@@ -425,7 +425,7 @@ class StructMutation():
 
             # 4. Mutate the vertex (Add)
             # self.mutate_vertex(mutated_dna)
-            if random.random() > 0.4:
+            if random.random() > 0.6:
                 mutated_cnt += 1
                 self.mutate_vertex(mutated_dna)
         return mutated_dna
@@ -492,7 +492,7 @@ class StructMutation():
                 return res
             # 2. 若数据维度改变(变小)，要用conv
             print("[add_edge]->conv:", from_vertex_id, to_vertex_id)
-            depth_f = max(1.0, random.random() * 2)
+            depth_f = max(1.0, random.random() * 4)
             filter_h = 1
             filter_w = 1
             new_edge = dna.add_edge(from_vertex_id,
@@ -559,7 +559,7 @@ class StructMutation():
 class Evolution_pop:
     _population_size_setpoint = 6
     _max_layer_size = 5
-    _evolve_time = 100
+    _evolve_time = 80
     fitness_pool = []
 
     EPOCH = 1  # 训练整批数据多少次
@@ -580,6 +580,8 @@ class Evolution_pop:
             self.population.append(dna_iter)
         self.data = data
         self.struct_mutation = StructMutation()
+
+        self.fitness_dir = {}
 
     def decode(self):
         '''
@@ -672,6 +674,7 @@ class Evolution_pop:
             print('----- Accuracy: {:.6f} -----'.format(accuracy))
             # dna.fitness = eval_acc / len_y
             dna.fitness = accuracy
+            self.fitness_dir[dna.dna_cnt] = accuracy
             print('')
 
     def Accuracy(self, net, testloader):
@@ -721,6 +724,10 @@ class Evolution_pop:
             elif len(self.population) < self._population_size_setpoint:
                 print("--reproduce better", better_individual)
                 self._reproduce_and_train_individual(better_individual)
+        self.population.sort(key=lambda i: i.fitness, reverse=True)
+        print(self.population[0].fitness)
+        self.population[0].calculate_flow()
+        # self.pop_show()
 
     def _kill_individual(self, index):
         ''' kill by the index of population '''
@@ -762,8 +769,33 @@ class Evolution_pop:
             index += 1
         print('')
 
+    def pop_show(self):
+        ''' 画出种群变化分布图 '''
+        best_individual = self.population[0].dna_cnt
+        live_individual = []
+        for i in self.population:
+            live_individual.append(i.fitness)
 
-class MadeDate:
+        global DNA_cnt
+        show_x = []
+        show_y = []
+        show_color = []
+        for i in range(DNA_cnt + 1):
+            if i in self.fitness_dir:
+                show_x.append(i)
+                show_y.append(self.fitness_dir[i])
+                if i in live_individual:
+                    if i == self.population[0].dna_cnt:
+                        show_color.append('red')
+                    else:
+                        show_color.append('blue')
+                else:
+                    show_color.append('gray')
+        plt.scatter(show_x, show_y, c=show_color, marker='.')
+        plt.show()
+
+
+class MadeData:
     DOWNLOAD_MNIST = False  # 如果你已经下载好了mnist数据就写上 False
     DOWNLOAD_FSAHION_MNIST = False
     BATCH_SIZE = 50
@@ -810,7 +842,6 @@ class MadeDate:
                                                       batch_size=2000,
                                                       shuffle=False,
                                                       num_workers=2)
-
         # 设置DNA的size
         DNA.input_size_height = 32
         DNA.input_size_width = 32
@@ -825,7 +856,7 @@ class MadeDate:
 
 
 if __name__ == "__main__":
-    data = MadeDate()
+    data = MadeData()
     # data.mnist()
     # 数据集选择
     # train_loader, test_x, test_y = data.getData()
@@ -835,3 +866,6 @@ if __name__ == "__main__":
     # test = Evolution_pop(train_loader, test_x, test_y)
     test = Evolution_pop(data)
     test.choose_varition_dna()
+    test.pop_show()
+
+    print()

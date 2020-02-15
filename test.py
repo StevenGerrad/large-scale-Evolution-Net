@@ -463,4 +463,154 @@ output = loss(input, target)
 print(output)
 '''
 
-print('---')
+# print('---')
+
+# https://blog.csdn.net/genous110/article/details/90700872
+'''
+import torch
+import torch.nn as nn
+
+class A(torch.nn.Module):
+    def __init__(self):
+        super(A, self).__init__()
+        self.conv = torch.nn.Conv2d(2, 4, 1)
+        self.conv1 = torch.nn.Conv2d(4, 4, 1)
+
+a = A()
+print(a.state_dict().keys())
+# odict_keys(['conv.weight', 'conv.bias'])
+
+b = {}
+for key in a.state_dict().keys():
+    if 'weight' in key:
+        w1, w2 = a.state_dict()[key].chunk(2, 1)
+        (b[key + '.w11'], b[key + '.w12'], b[key + '.w13'], b[key + '.w14']) = w1.chunk(4, 0)
+        (b[key + '.w21'], b[key + '.w22'], b[key + '.w23'], b[key + '.w24']) = w1.chunk(4, 0)
+
+c = torch.Tensor([1000])
+b['conv.weight.w11'].copy_(c)
+print(a.state_dict())
+
+d = A()
+# odict_keys(['conv.weight', 'conv.bias'])
+
+model_state = model.state_dict()
+model_state.update(load_state)
+model.load_state_dict(model_state)
+
+def init_weights(m):
+    print(m)
+    if type(m) == nn.Linear:
+        m.weight.data.fill_(1.0)
+        print(m.weight)
+
+net = nn.Sequential(nn.Linear(2, 2), nn.Linear(2, 2))
+net.apply(init_weights)
+'''
+
+# https://blog.csdn.net/goodxin_ie/article/details/84555805
+
+#############################################################################
+#
+# ————————————————
+# 版权声明：本文为CSDN博主「夏洛的网」的原创文章，遵循 CC 4.0 BY-SA 版权协议，转载请附上原文出处链接及本声明。
+# 原文链接 ： https: // blog.csdn.net / liuxiao214 / article / details / 80115924
+#
+#############################################################################
+
+from collections import defaultdict, OrderedDict
+import json
+
+video = defaultdict(list)
+video["label"].append("haha")
+video["data"].append(234)
+video["score"].append(0.3)
+
+video["label"].append("xixi")
+video["data"].append(123)
+video["score"].append(0.7)
+
+test_dict = {
+    'version': "1.0",
+    'results': video,
+    'explain': {
+        'used': True,
+        'details': "this is for josn test",
+    }
+}
+
+# json_str = json.dumps(test_dict)
+# with open('./pytorch_Exp/test_data.json', 'w') as json_file:
+#     json_file.write(json_str)
+
+file = open('./pytorch_Exp/test_data.json', 'r')
+info = json.load(file)
+
+# print(info["results"]["label"][0])
+print(info)
+'''
+from collections import defaultdict, OrderedDict
+import json
+
+model = defaultdict(list)
+
+l0 = defaultdict(list)
+l0["edges_out"].append(0)
+l0["type"] = "linear"
+l0["input_mutable"] = 0
+l0["output_mutable"] = 0
+l0["properties_mutable"] = 0
+
+l1 = defaultdict(list)
+l1["edges_in"].append(0)
+l1["edges_out"].append(1)
+l1["type"] = "linear"
+l1["input_mutable"] = 0
+l1["output_mutable"] = 0
+l1["properties_mutable"] = 0
+
+l2 = defaultdict(list)
+l2["edges_in"].append(1)
+# l2["edges_out"].append(1)
+l2["type"] = "Global Pooling"
+l2["input_mutable"] = 0
+l2["output_mutable"] = 0
+l2["properties_mutable"] = 0
+
+# vertices = defaultdict(list)
+model["vertices"].append(l0)
+model["vertices"].append(l1)
+model["vertices"].append(l2)
+
+edg1 = defaultdict(list)
+edg1["from_vertex"] = 0
+edg1["to_vertex"] = 1
+edg1["type"] = "identity"
+
+edg2 = defaultdict(list)
+edg2["from_vertex"] = 1
+edg2["to_vertex"] = 2
+edg2["type"] = "identity"
+
+# edges = defaultdict(list)
+model["edges"].append(edg1)
+model["edges"].append(edg2)
+
+test_dict = {
+    'version': "1.0",
+    'explain': {
+        'used': True,
+        'details': "this is for josn test",
+    }
+}
+
+test_dict["populations"] = []
+
+test_dict["populations"].append(model)
+test_dict["populations"].append(model)
+
+json_str = json.dumps(test_dict)
+with open('./pytorch_Exp/test_data.json', 'w') as json_file:
+    json_file.write(json_str)
+
+'''

@@ -1,0 +1,101 @@
+{
+    "version": "1.0",
+    "explain": {
+        "used": true,
+        "details": "this is for josn test"
+    },
+    "populations": [
+        {
+            "vertices": [
+                {
+                    "edges_out": [
+                        0
+                    ],
+                    "type": "linear",
+                    "input_mutable": 0,
+                    "output_mutable": 0,
+                    "properties_mutable": 0
+                },
+                {
+                    "edges_in": [
+                        0
+                    ],
+                    "edges_out": [
+                        1
+                    ],
+                    "type": "linear",
+                    "input_mutable": 0,
+                    "output_mutable": 0,
+                    "properties_mutable": 0
+                },
+                {
+                    "edges_in": [
+                        1
+                    ],
+                    "type": "Global Pooling",
+                    "input_mutable": 0,
+                    "output_mutable": 0,
+                    "properties_mutable": 0
+                }
+            ],
+            "edges": [
+                {
+                    "from_vertex": 0,
+                    "to_vertex": 1,
+                    "type": "identity"
+                },
+                {
+                    "from_vertex": 1,
+                    "to_vertex": 2,
+                    "type": "identity"
+                }
+            ]
+        },
+        {
+            "vertices": [
+                {
+                    "edges_out": [
+                        0
+                    ],
+                    "type": "linear",
+                    "input_mutable": 0,
+                    "output_mutable": 0,
+                    "properties_mutable": 0
+                },
+                {
+                    "edges_in": [
+                        0
+                    ],
+                    "edges_out": [
+                        1
+                    ],
+                    "type": "linear",
+                    "input_mutable": 0,
+                    "output_mutable": 0,
+                    "properties_mutable": 0
+                },
+                {
+                    "edges_in": [
+                        1
+                    ],
+                    "type": "Global Pooling",
+                    "input_mutable": 0,
+                    "output_mutable": 0,
+                    "properties_mutable": 0
+                }
+            ],
+            "edges": [
+                {
+                    "from_vertex": 0,
+                    "to_vertex": 1,
+                    "type": "identity"
+                },
+                {
+                    "from_vertex": 1,
+                    "to_vertex": 2,
+                    "type": "identity"
+                }
+            ]
+        }
+    ]
+}

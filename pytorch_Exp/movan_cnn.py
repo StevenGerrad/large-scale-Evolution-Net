@@ -28,12 +28,12 @@ DOWNLOAD_MNIST = False
 
 # Mnist digits dataset
 
-if not (os.path.exists('./FashionMNIST/')) or not os.listdir('./FashionMNIST/'):
+if not (os.path.exists('./dataset/')) or not os.listdir('./dataset/'):
     # not mnist dir or mnist is empyt dir
     DOWNLOAD_MNIST = True
 
 train_data = torchvision.datasets.FashionMNIST(
-    root='./FashionMNIST/',
+    root='./dataset/',
     train=True,  # this is training data
     transform=torchvision.transforms.ToTensor(),  # Converts a PIL.Image or numpy.ndarray to
     # torch.FloatTensor of shape (C x H x W) and normalize in the range [0.0, 1.0]
@@ -53,7 +53,7 @@ plt.show()
 train_loader = Data.DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
 
 # pick 2000 samples to speed up testing
-test_data = torchvision.datasets.FashionMNIST(root='FashionMNIST/', train=False)
+test_data = torchvision.datasets.FashionMNIST(root='dataset/', train=False)
 test_x = torch.unsqueeze(test_data.test_data, dim=1).type(
     torch.FloatTensor
 )[:2000] / 255.  # shape from (2000, 28, 28) to (2000, 1, 28, 28), value in range(0,1)
@@ -87,6 +87,8 @@ class CNN(nn.Module):
         x = self.conv1(x)
         x = self.conv2(x)
         x = x.view(x.size(0), -1)  # flatten the output of conv2 to (batch_size, 32 * 7 * 7)
+
+        # x = torch.cat([x, x, x], dim=1)
         output = self.out(x)
         return output, x  # return x for visualization
 
